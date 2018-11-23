@@ -358,6 +358,54 @@ let offset_to_text_point input abs_point =
   admit();
   { line; index }
 
+(* BEGIN CHANGED CODE *)
+val offset_to_text_point_alt :
+  input:selection ->
+  abs_point:offset input.lines ->
+  Tot (valid_text_point input)
+let offset_to_text_point_alt input abs_point =
+  let total_length = U.uint_to_t (text_total_chars input.lines) in
+  let total_lines = text_length input.lines in
+  let (| stopped, remainder, line, index |) = fold_left (fun
+    ((| stopped, remainder, line, index|) :
+      (stopped: bool)
+      & (remainder:small_usize)
+      & (line:small_usize{U.(line <^ total_lines)})
+      & (index:small_usize{stopped ==> U.(index <=^ line_length input.lines line)})
+    )
+    (text_line:line_string) ->
+    let line_length = U.uint_to_t (FStar.String.strlen text_line) in
+    if U.(remainder >^ line_length) then
+      let new_line = if U.(line >=^ (total_lines -^ 1ul)) then line else U.(line +^ 1ul) in
+      (| false, U.(remainder -^ line_length -^ 1ul), new_line, index |)
+    else begin
+      assume (text_line = FStar.List.Tot.index input.lines (U.v line));
+      (| true, 0ul, line, remainder |)
+    end
+  ) (| false, abs_point, 0ul, 0ul |) input.lines
+  in
+  if stopped then begin
+    { line; index }
+  end else
+    { line = U.(total_lines -^ 1ul); index = line_length input.lines U.(total_lines -^ 1ul) }
+(* END CHANGED CODE *)
+
+let offset_to_text_point_monotonicity
+  (input:selection)
+  (x: offset input.lines)
+  (y: offset input.lines{U.(x <=^ y)})
+  : Lemma (ensures
+    (point_lte (offset_to_text_point_alt input x) (offset_to_text_point_alt input y))
+  )
+  =
+  let point_x = offset_to_text_point_alt input x in
+  let point_y = offset_to_text_point_alt input y in
+  (* How to prove the monotonicity of the function ? *)
+  assume U.(point_x.line <=^ point_y.line);
+  if U.(point_x.line =^ point_y.line) then
+    assume U.(point_x.index <=^ point_y.index);
+  ()
+
 val set_selection_range:
   input:selection ->
   start:offset input.lines ->
@@ -368,9 +416,10 @@ let set_selection_range input start final dir =
   let text_end = U.uint_to_t (text_total_chars input.lines) in
   let final : offset input.lines = if U.(final >^ text_end) then text_end else final in
   let start : offset input.lines = if U.(start >^ final) then final else start in
-  let start_p =  offset_to_text_point input start in
-  let final_p = offset_to_text_point input final in
-  assume (point_lte start_p final_p);
+  assert U.(start <=^ final);
+  let start_p =  offset_to_text_point_alt input start in
+  let final_p = offset_to_text_point_alt input final in
+  offset_to_text_point_monotonicity input start final;
   let input = { input with selection_direction = dir } in
   match dir with
   | Unspecified | Forward ->
