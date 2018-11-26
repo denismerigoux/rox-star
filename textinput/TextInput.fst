@@ -1,6 +1,6 @@
 module TextInput
 
-open FStar.List.Tot.Base
+open Rust
 module U = FStar.UInt32
 module I = FStar.Int32
 
@@ -49,13 +49,14 @@ type selection_state = {
 type line_string = s:string{FStar.String.strlen s + 1 <= Int.max_int 32}
 
 
-let text_total_chars (text:list line_string) =
-  fold_left (fun acc (line : line_string) -> acc + 1 + FStar.String.strlen line) 0 text
+let text_total_chars (text:vec line_string) =
+  fold (fun acc (line : line_string) -> acc + 1 + FStar.String.strlen line) 0 text
 
-type text = t:list line_string{length t + 1 <= max_isize && text_total_chars t <= max_isize}
+type text = t:vec line_string{length t + 1 <= max_isize && text_total_chars t <= max_isize}
 
 val text_length : text -> Tot usize
 let text_length text = U.uint_to_t (length text)
+
 
 val line_length : text:text -> i:usize{U.(i <^ (text_length text))} -> Tot usize
 let line_length t i = U.uint_to_t (FStar.String.strlen (index t (U.v i)))
@@ -324,10 +325,9 @@ let adjust_horizontal_to_line_end input dir status =
     in
     perform_horizontal_adjustment input shift status
 
-let decr (x:nat{x > 0}) : nat = x - 1
-
 type offset (t:text) = n:small_usize{U.v n <= text_total_chars t}
 
+(*
 val offset_to_text_point :
   input:selection ->
   abs_point:offset input.lines ->
@@ -335,7 +335,7 @@ val offset_to_text_point :
 let offset_to_text_point input abs_point =
   let len = text_length input.lines in
   let last_line_idx = U.(len -^ 1ul) in
-  let (| line, index, _, _ |) = fold_left (fun
+  let (| line, index, _, _ |) = List.Tot.Base.fold_left (fun
     ((| line, index, i, acc|) :
       ( (line:small_usize{U.(line <^ len)})
 	& small_usize
@@ -357,38 +357,123 @@ let offset_to_text_point input abs_point =
   in
   admit();
   { line; index }
+*)
 
 (* BEGIN CHANGED CODE *)
+type loop_acc (input:selection) (i:nat{i <= U.v (text_length input.lines)}) =
+  begin let total_lines = text_length input.lines in
+  dtuple4
+    (small_usize)
+    (fun _ -> line:small_usize{U.(line <^ total_lines) && U.v line <= i})
+    (fun _ line -> index:small_usize{U.(index <=^ line_length input.lines line)})
+    (fun remainder line index -> stopped:bool{
+      if stopped then
+	remainder = 0ul
+      else
+        index = 0ul
+    })
+  end
+
+val offset_to_text_point_loop:
+  input:selection ->
+  i:nat{i < U.v (text_length input.lines)} ->
+  text_line:line_string ->
+  loop_acc input i ->
+  Tot (loop_acc input (i + 1))
+let offset_to_text_point_loop input i _ (| remainder, line, index, stopped |) =
+  let line_length = line_length input.lines (U.uint_to_t i) in
+  if stopped then (| remainder, line, index, stopped |) else
+  if U.(remainder >^ line_length) then
+    (| U.(remainder -^ line_length -^ 1ul), U.uint_to_t i,  0ul, false |)
+  else begin
+    (| 0ul, U.uint_to_t i, remainder, true |)
+  end
+
 val offset_to_text_point_alt :
   input:selection ->
   abs_point:offset input.lines ->
-  Tot (valid_text_point input)
-let offset_to_text_point_alt input abs_point =
+  Tot (res:valid_text_point input)
+ let offset_to_text_point_alt input abs_point =
   let total_length = U.uint_to_t (text_total_chars input.lines) in
   let total_lines = text_length input.lines in
-  let (| stopped, remainder, line, index |) = fold_left (fun
-    ((| stopped, remainder, line, index|) :
-      (stopped: bool)
-      & (remainder:small_usize)
-      & (line:small_usize{U.(line <^ total_lines)})
-      & (index:small_usize{stopped ==> U.(index <=^ line_length input.lines line)})
-    )
-    (text_line:line_string) ->
-    let line_length = U.uint_to_t (FStar.String.strlen text_line) in
-    if U.(remainder >^ line_length) then
-      let new_line = if U.(line >=^ (total_lines -^ 1ul)) then line else U.(line +^ 1ul) in
-      (| false, U.(remainder -^ line_length -^ 1ul), new_line, index |)
-    else begin
-      assume (text_line = FStar.List.Tot.index input.lines (U.v line));
-      (| true, 0ul, line, remainder |)
-    end
-  ) (| false, abs_point, 0ul, 0ul |) input.lines
+  let acc : loop_acc input 0 = (| abs_point, 0ul, 0ul, false |) in
+  let (| remainder, line, index, stopped |) : loop_acc input ((U.v total_lines) - 1) =
+    foldl input.lines (loop_acc input) acc (offset_to_text_point_loop input)
   in
   if stopped then begin
     { line; index }
   end else
     { line = U.(total_lines -^ 1ul); index = line_length input.lines U.(total_lines -^ 1ul) }
 (* END CHANGED CODE *)
+
+#reset-options "--max_fuel 1 --z3rlimit 100"
+
+let monotonicity_loop_invariant
+  (input:selection)
+  (i:nat{i < U.v (text_length input.lines)})
+  (acc_x: loop_acc input i)
+  (acc_y: loop_acc input i) =
+  let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
+  let (| remainder_y, line_y, index_y, stopped_y |) = acc_y in
+  U.(remainder_x <=^ remainder_y) &&
+  begin if not stopped_x && not stopped_y then
+    line_x = line_y && U.(index_x <=^ index_y)
+  else if stopped_x && not stopped_y then
+     U.(line_x <=^ line_y) && index_y = 0ul
+  else if stopped_x && stopped_y then
+      U.(line_x <=^ line_y) &&
+      begin if line_x = line_y then
+	U.(index_x <=^ index_y)
+      else begin
+	assert U.(line_x <^ line_y);
+	true
+      end
+      end
+  else
+    false
+  end
+
+
+let offset_to_text_point_loop_monotonicity
+  (input:selection)
+  (i: nat{i < U.v (text_length input.lines)})
+   (acc_x: loop_acc input i)
+  (acc_y: loop_acc input i)
+  (text_line:line_string)
+  : Lemma
+  (requires (monotonicity_loop_invariant input i acc_x acc_y))
+  (ensures (
+      if i = U.v (text_length input.lines) - 1 then true else
+      let new_acc_x =
+	offset_to_text_point_loop input i text_line acc_x
+      in
+      let new_acc_y =
+	offset_to_text_point_loop input i text_line acc_y
+      in
+      monotonicity_loop_invariant input (i + 1) new_acc_x new_acc_y
+  )) =
+  let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
+  let (| remainder_y, line_y, index_y, stopped_y |) = acc_y in
+  let  (| new_remainder_x, new_line_x, new_index_x, new_stopped_x |) =
+    offset_to_text_point_loop input i text_line acc_x
+  in
+  let  (| new_remainder_y, new_line_y, new_index_y, new_stopped_y |) =
+    offset_to_text_point_loop input i text_line acc_y
+  in
+  assert(if not stopped_x && not stopped_y && new_stopped_x && new_stopped_y then
+    U.(new_index_x <=^ new_index_y) else true
+  );
+  assume (if stopped_x && not stopped_y && new_stopped_x && new_stopped_y then
+    if new_line_x = new_line_y then U.(new_index_x <=^ new_index_y) else U.(new_line_x <^ new_line_y) else true
+  );
+  ()
+
+let both_acc input i = acc:(loop_acc input i & loop_acc input i){
+  if i = U.v (text_length input.lines) then true else
+  let (acc_x, acc_y) = acc in monotonicity_loop_invariant input i acc_x acc_y
+}
+
+#reset-options "--max_fuel 4 --z3rlimit 100"
 
 let offset_to_text_point_monotonicity
   (input:selection)
@@ -398,12 +483,23 @@ let offset_to_text_point_monotonicity
     (point_lte (offset_to_text_point_alt input x) (offset_to_text_point_alt input y))
   )
   =
-  let point_x = offset_to_text_point_alt input x in
-  let point_y = offset_to_text_point_alt input y in
-  (* How to prove the monotonicity of the function ? *)
-  assume U.(point_x.line <=^ point_y.line);
-  if U.(point_x.line =^ point_y.line) then
-    assume U.(point_x.index <=^ point_y.index);
+  let total_lines = text_length input.lines in
+  let acc : both_acc input 0 = ((| x, 0ul, 0ul, false |), (| y, 0ul, 0ul, false |) ) in
+  let ((| remainder_x, line_x, index_x, stopped_x |), (| remainder_y, line_y, index_y, stopped_y |)) : (both_acc input ((U.v total_lines) - 1)) =
+    foldl input.lines (fun i -> both_acc input i) acc (fun i text_line (acc_x, acc_y) ->
+      let new_acc_x = offset_to_text_point_loop input i text_line acc_x in
+      let new_acc_y = offset_to_text_point_loop input i text_line acc_y in
+      offset_to_text_point_loop_monotonicity input i acc_x acc_y text_line;
+      (new_acc_x, new_acc_y)
+    )
+  in
+  let end_point =  { line = U.(total_lines -^ 1ul); index = line_length input.lines U.(total_lines -^ 1ul) } in
+  let point_x = if stopped_x then begin
+    { line = line_x; index = index_x }
+  end else end_point in
+  let point_y = if stopped_y then begin { line = line_y ; index = index_y } end else end_point in
+  assume (point_x = offset_to_text_point_alt input x);
+  assume (point_y = offset_to_text_point_alt input y);
   ()
 
 val set_selection_range:
