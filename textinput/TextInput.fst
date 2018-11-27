@@ -17,9 +17,6 @@ type direction =
   | DForward
   | DBackward
 
-type usize = U.t
-type isize = I.t
-
 let max_usize = UInt.max_int U.n
 let max_isize = Int.max_int I.n
 
