@@ -65,13 +65,19 @@ val adjust_slot:
   bf:bloom_storage_u8 ->
   idx:valid_index bf ->
   increment:bool{if not increment then not (slot_is_empty bf idx) else true } ->
-  Tot bloom_storage_u8
+  Tot (new_bf:bloom_storage_u8{
+    forall (idx':valid_index bf{idx <> idx'}). (
+      array_index new_bf.counters idx' = array_index bf.counters idx'
+    )
+  })
 let adjust_slot bf idx increment =
   let slot = array_index bf.counters idx in
   if slot <> 0xffuy then
-    if increment then
-      { bf with counters = array_update bf.counters idx U8.(slot +^ 1uy) }
-    else
+    if increment then begin
+      let new_counters = array_update bf.counters idx U8.(slot +^ 1uy)  in
+      lemma_array_update u8 _ARRAY_SIZE bf.counters idx U8.(slot +^ 1uy);
+      { bf with counters = new_counters }
+    end else
       { bf with counters = array_update bf.counters idx U8.(slot -^ 1uy) }
   else bf
 
@@ -114,14 +120,10 @@ let might_contain_hash bf hash =
   not (first_slot_is_empty bf hash) &&
   not (second_slot_is_empty bf hash)
 
-let rec list_all (l: list element) (f:(element -> bool)) : Tot bool (decreases l) =
-  match l with
-  | [] -> true
-  | hd::tl -> if f hd then list_all tl f else false
 
 let is_valid_bloom_filter (bf: bloom_storage_u8) : Tot bool =
-  let all_elements = bf.ghost_state.elements in
-  list_all all_elements (fun e ->
+  let elements = bf.ghost_state.elements in
+  all_elements elements (fun (e, _) ->
     might_contain_hash bf (hash e)
   )
 
@@ -131,13 +133,20 @@ val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
   vec_all bf.counters (fun x -> x = 0uy)
 
-#reset-options "--z3rlimit 100"
-
 val insert_element: bf:valid_bloom_storage_u8 -> element -> Tot valid_bloom_storage_u8
 let insert_element bf e =
-  let hash = hash e in
+  let hash_val = hash e in
   let bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
-  insert_hash bf hash
+  let new_bf = insert_hash bf hash_val in
+  (* *)
+  let elements = bf.ghost_state.elements in
+  all_elements elements (fun (e', _) ->
+    let cond = might_contain_hash bf (hash e') in
+    if e <> e' then assert(cond) else ();
+    cond
+  );
+  admit();
+  new_bf
 
 val remove_element: bf:valid_bloom_storage_u8 -> element -> Tot valid_bloom_storage_u8
 let remove_element bf e =

@@ -51,28 +51,90 @@ val array_index :
   #a:Type0 ->
   #len:usize ->
   arr:array a len ->
-  i:usize{Usize.(i <^ array_length arr)} ->
+  i:usize{Usize.(i <^ len)} ->
   Tot a
 let array_index #a #len arr i = List.Tot.Base.index #a arr (Usize.v i)
 
 val array_update :
-  #a: Type0 ->
+  #a:eqtype ->
   #len: usize ->
   arr: array a len ->
-  i:usize{Usize.(i <^ array_length arr)} ->
+  i:usize{Usize.(i <^ len)} ->
   new_value:a ->
-  Tot (array a len) (decreases arr)
+  Tot (new_arr:array a len) (decreases arr)
 let rec array_update #a #len arr i new_value =
    if i = 0ul then
      (new_value :: (List.Tot.Base.tl arr))
-   else  (List.Tot.Base.hd arr)::(
-     let tail = List.Tot.Base.tl arr in
-     array_update #a #(Usize.(len -^ 1ul)) tail Usize.(i -^ 1ul) new_value
-   )
+   else begin
+   let tail = List.Tot.Base.tl arr in
+   let new_len = Usize.(len -^ 1ul) in
+   let new_i = Usize.(i -^ 1ul) in
+   let new_tail =
+     array_update #a #new_len tail new_i  new_value
+   in
+   let new_arr = (List.Tot.Base.hd arr)::new_tail in
+   new_arr
+   end
+
+let rec lemma_array_update
+  (a:eqtype)
+  (len:usize)
+  (arr:array a len)
+  (i:usize{Usize.(i <^ len)})
+  (new_value: a) : Lemma
+  (ensures (
+    let new_arr = array_update #a #len arr i new_value in
+    array_index new_arr i = new_value /\
+    (forall (i':usize{Usize.(i' <^ len) /\ i' <> i}).
+      array_index new_arr i' = array_index arr i'
+    )
+  ))
+  (decreases arr)
+  //[SMTPat (array_update #a #len arr i new_value)]
+  = if i = 0ul then () else
+   let tail = List.Tot.Base.tl arr in
+   let new_len = Usize.(len -^ 1ul) in
+   let new_i = Usize.(i -^ 1ul) in
+   let new_tail =
+     array_update #a #new_len tail new_i new_value
+   in
+   lemma_array_update a new_len tail new_i new_value;
+   let new_arr = (List.Tot.Base.hd arr)::new_tail in
+   assert (new_arr = array_update #a #len arr i new_value);
+   assert (array_index #a #len new_arr i = new_value);
+   assume (forall (i':usize{Usize.(i' <^ len) /\ i' <> i}).
+     if  i' = 0ul then begin
+       let cond =
+	 array_index #a #len new_arr i' = array_index #a #len arr i'
+       in
+       assert(cond);
+       cond
+     end else begin
+       let new_i' = Usize.(i' -^ 1ul) in
+       assert (forall (i'':usize{Usize.(i'' <^ new_len /\ i'' <> new_i)}).
+	 array_index #a #new_len tail i'' = array_index #a #new_len new_tail i''
+       );
+       assert(array_index #a #len new_arr i' = array_index #a #new_len new_tail new_i');
+       assert(array_index #a #new_len new_tail new_i' = array_index #a #new_len tail new_i');
+       assert(array_index #a #new_len tail new_i' = array_index #a #len arr i');
+       let cond = array_index #a #len new_arr i' = array_index #a #len arr i' in
+       assert(cond);
+       cond
+       end
+   );
+   ()
+
+let lemma_mapi (a: Type) (b: Type) (v: list a) (f: int -> a -> b)
+  : Lemma (ensures (List.Tot.Base.length (List.Tot.Base.mapi f v) = List.Tot.Base.length v))
+  = admit()
 
 val enumerate : #a:eqtype -> v:vec a ->
   Tot (vec (a & i:int))
-let enumerate #a v = List.Tot.Base.mapi (fun i e -> (e,i)) v
+let enumerate #a v =
+  let f = (fun i e -> (e,i)) in
+  let new_v = List.Tot.Base.mapi f v in
+  lemma_mapi a (a & int) v f;
+  new_v
 
 private val repeat_left:
     lo:nat
