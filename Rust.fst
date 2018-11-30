@@ -90,7 +90,7 @@ let rec lemma_array_update
     )
   ))
   (decreases arr)
-  //[SMTPat (array_update #a #len arr i new_value)]
+  [SMTPat (array_update #a #len arr i new_value)]
   = if i = 0ul then () else
    let tail = List.Tot.Base.tl arr in
    let new_len = Usize.(len -^ 1ul) in
@@ -102,27 +102,22 @@ let rec lemma_array_update
    let new_arr = (List.Tot.Base.hd arr)::new_tail in
    assert (new_arr = array_update #a #len arr i new_value);
    assert (array_index #a #len new_arr i = new_value);
-   assume (forall (i':usize{Usize.(i' <^ len) /\ i' <> i}).
-     if  i' = 0ul then begin
-       let cond =
-	 array_index #a #len new_arr i' = array_index #a #len arr i'
-       in
-       assert(cond);
-       cond
-     end else begin
-       let new_i' = Usize.(i' -^ 1ul) in
-       assert (forall (i'':usize{Usize.(i'' <^ new_len /\ i'' <> new_i)}).
-	 array_index #a #new_len tail i'' = array_index #a #new_len new_tail i''
-       );
-       assert(array_index #a #len new_arr i' = array_index #a #new_len new_tail new_i');
-       assert(array_index #a #new_len new_tail new_i' = array_index #a #new_len tail new_i');
-       assert(array_index #a #new_len tail new_i' = array_index #a #len arr i');
-       let cond = array_index #a #len new_arr i' = array_index #a #len arr i' in
-       assert(cond);
-       cond
-       end
-   );
-   ()
+   let inner_lemma
+     (i':usize{Usize.(i' <^ len) /\ i' <> i}) :
+     Lemma (ensures
+       (array_index #a #len new_arr i' = array_index #a #len arr i')
+     ) =
+   begin
+    if i' = 0ul then
+      ()
+    else begin
+      let new_i' = Usize.(i' -^ 1ul) in
+      assert(array_index #a #len new_arr i' = array_index #a #new_len new_tail new_i');
+      ()
+    end
+  end in
+  Classical.forall_intro inner_lemma;
+  ()
 
 let lemma_mapi (a: Type) (b: Type) (v: list a) (f: int -> a -> b)
   : Lemma (ensures (List.Tot.Base.length (List.Tot.Base.mapi f v) = List.Tot.Base.length v))
