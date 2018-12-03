@@ -55,6 +55,10 @@ val slot_is_empty: bf:bloom_storage_u8 -> valid_index -> Tot bool
 let slot_is_empty bf idx =
   (array_index bf.counters idx) = 0uy
 
+val slot_value: bf:bloom_storage_u8 -> valid_index -> Tot u8
+let slot_value bf idx =
+  array_index bf.counters idx
+
 val first_slot_is_empty : bf:bloom_storage_u8 -> u32 -> Tot bool
 let first_slot_is_empty bf hash = slot_is_empty bf (first_slot_index hash)
 
@@ -66,25 +70,14 @@ let might_contain_hash bf hash =
   not (first_slot_is_empty bf hash) &&
   not (second_slot_is_empty bf hash)
 
-let modified_only_one_slot
-  (old_bf:bloom_storage_u8)
-  (new_bf:bloom_storage_u8)
-  (idx:valid_index) =
-  forall (idx':valid_index{idx <> idx'}).
-  array_index new_bf.counters idx' = array_index old_bf.counters idx'
+let valid_incr (bf:bloom_storage_u8) (idx:valid_index) (increment:bool) =
+  if not increment then not (slot_is_empty bf idx) else true
 
 val adjust_slot:
   bf:bloom_storage_u8 ->
   idx:valid_index ->
-  increment:bool{if not increment then not (slot_is_empty bf idx) else true } ->
-  Tot (new_bf:bloom_storage_u8{
-    modified_only_one_slot bf new_bf idx /\
-    begin if increment then
-      not (slot_is_empty new_bf idx)
-    else
-      true
-    end
-  })
+  increment:bool{valid_incr bf idx increment} ->
+  Tot (new_bf:bloom_storage_u8)
 let adjust_slot bf idx increment =
   let slot = array_index bf.counters idx in
   if slot <> 0xffuy then
@@ -97,51 +90,23 @@ let adjust_slot bf idx increment =
 val adjust_first_slot:
   bf:bloom_storage_u8 ->
   hash:u32 ->
-  increment:bool{if not increment then not (first_slot_is_empty bf hash) else true} ->
-  Tot (new_bf:bloom_storage_u8{
-    let idx = first_slot_index hash in
-    modified_only_one_slot bf new_bf idx /\
-    begin if increment then
-      not (slot_is_empty new_bf idx)
-    else
-      true
-    end
-  })
+  increment:bool{valid_incr bf (first_slot_index hash) increment} ->
+  Tot (new_bf:bloom_storage_u8)
 let adjust_first_slot bf hash increment =
   adjust_slot bf (first_slot_index hash) increment
 
 val adjust_second_slot:
   bf:bloom_storage_u8 ->
   hash:u32 ->
-  increment:bool{if not increment then not (second_slot_is_empty bf hash) else true} ->
-  Tot (new_bf:bloom_storage_u8{
-    let idx = second_slot_index hash in
-    modified_only_one_slot bf new_bf idx /\
-    begin if increment then
-      not (slot_is_empty new_bf idx)
-    else
-      true
-    end
-  })
+  increment:bool{valid_incr bf (second_slot_index hash) increment} ->
+  Tot (new_bf:bloom_storage_u8)
 let adjust_second_slot bf hash increment =
   adjust_slot bf (second_slot_index hash) increment
-
-let modified_hash_slots
-  (old_bf:bloom_storage_u8)
-  (new_bf:bloom_storage_u8)
-  (hash:u32) =
-  let idx1 = first_slot_index hash in
-  let idx2 = second_slot_index hash in
-  forall (idx':valid_index{idx' <> idx1 /\ idx' <> idx2}).
-  array_index new_bf.counters idx' = array_index old_bf.counters idx'
 
 val insert_hash:
   bf:bloom_storage_u8 ->
   hash: u32 ->
-  Tot (new_bf:bloom_storage_u8{
-    modified_hash_slots bf new_bf hash /\
-    might_contain_hash new_bf hash
-  })
+  Tot (new_bf:bloom_storage_u8)
 let insert_hash bf hash =
   let bf = adjust_first_slot bf hash true in
   adjust_second_slot bf hash true
@@ -149,7 +114,7 @@ let insert_hash bf hash =
 val remove_hash:
   bf:bloom_storage_u8 ->
   hash:u32 ->
-  Tot (new_bf:bloom_storage_u8{modified_hash_slots bf new_bf hash})
+  Tot (new_bf:bloom_storage_u8)
 let remove_hash bf hash =
   (* BEGIN ADDED CODE *)
   (* They never check before substracting in the slots ! Negative overflow might occur *)
@@ -168,54 +133,14 @@ val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
   vec_all bf.counters (fun x -> x = 0uy)
 
-let add_only_bloom_filter (bf: bloom_storage_u8) : Tot bool =
-  let elements = bf.ghost_state.elements in
-  all_elements elements (fun e ->
-    might_contain_hash bf (hash e)
-  )
-
-let element_invalidation (bf: bloom_storage_u8) =
-  (forall (e:element). (
-    (not (might_contain_hash bf (hash e))) ==>
-      (not (contains bf.ghost_state.elements e))
-  ))
-
-let lemma_add_only_bloom_filter
-  (bf: bloom_storage_u8)
-  : Lemma (ensures (
-    add_only_bloom_filter bf <==>
-    (forall (e:element{contains bf.ghost_state.elements e}).
-      might_contain_hash bf (hash e))
-  )) =
-    all_elements_lemma
-      #element
-      bf.ghost_state.elements
-      (fun e -> might_contain_hash bf (hash e))
-
-type valid_bloom_storage_u8 = bf:bloom_storage_u8{element_invalidation bf}
-
-type add_only_bloom_storage_u8 = bf:valid_bloom_storage_u8{add_only_bloom_filter bf}
-
-val insert_element: bf:add_only_bloom_storage_u8 -> element -> Tot add_only_bloom_storage_u8
+val insert_element: bf:bloom_storage_u8 -> element -> Tot bloom_storage_u8
 let insert_element bf e =
   let hash_val = hash e in
   (* *) let new_bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
-  let new_bf = insert_hash bf hash_val in
-  (* *) lemma_add_only_bloom_filter bf;
-  (* *) lemma_add_only_bloom_filter new_bf;
-  new_bf
+  insert_hash bf hash_val
 
-val remove_element: bf:valid_bloom_storage_u8 -> element -> Tot valid_bloom_storage_u8
+val remove_element: bf:bloom_storage_u8 -> element -> Tot bloom_storage_u8
 let remove_element bf e =
   let hash_e = hash e in
   let new_bf = { bf with ghost_state = spec_remove_element bf.ghost_state e } in
-  let new_bf = remove_hash bf hash_e in
-  (* *) let inner_lemma
-  (* *)   (e':element{not (might_contain_hash new_bf (hash e'))})
-  (* *)   : Lemma (ensures (not (contains new_bf.ghost_state.elements e')))
-  (* *)   =
-  (* *)   let hash_e' = hash e' in
-  (* *)	    admit()
-  (* *) in
-  (* *) Classical.forall_intro inner_lemma;
-  new_bf
+  remove_hash new_bf hash_e

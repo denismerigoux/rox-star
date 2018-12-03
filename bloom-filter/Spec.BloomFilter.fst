@@ -15,7 +15,7 @@ assume type element: eqtype
 
 assume val hash: element -> u32
 
-type count = n:int
+type count = n:nat
 
 let contains (#a:eqtype) (l:list (a & count)) (e:a) : Tot bool =
   existsb (fun (e', _) -> e = e') l
@@ -65,7 +65,11 @@ let rec decr_count #a l e =
   | [] -> l
   | (e', old_count)::tl ->
     if e = e' then
-      (e', old_count - 1)::tl
+      if old_count = 0 then
+      (* We saturate at 0 *)
+        (e', old_count)::tl
+      else
+        (e', old_count - 1)::tl
     else
       (e', old_count)::(decr_count tl e)
 
