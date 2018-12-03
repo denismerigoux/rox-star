@@ -47,16 +47,17 @@ type line_string = s:string{FStar.String.strlen s + 1 <= Int.max_int 32}
 
 
 let text_total_chars (text:vec line_string) =
-  fold (fun acc (line : line_string) -> acc + 1 + FStar.String.strlen line) 0 text
+  vec_foldl text (fun _ -> nat) 0
+    (fun _ (line : line_string) acc -> acc + 1 + FStar.String.strlen line)
 
-type text = t:vec line_string{length t + 1 <= max_isize && text_total_chars t <= max_isize}
+type text = t:vec line_string{U.v (vec_length t) + 1 <= max_isize && text_total_chars t <= max_isize}
 
 val text_length : text -> Tot usize
-let text_length text = U.uint_to_t (length text)
+let text_length text = vec_length text
 
 
 val line_length : text:text -> i:usize{U.(i <^ (text_length text))} -> Tot usize
-let line_length t i = U.uint_to_t (FStar.String.strlen (index t (U.v i)))
+let line_length t i = U.uint_to_t (FStar.String.strlen (vec_index t i))
 
 type text_input = {
   lines: text;
@@ -315,7 +316,7 @@ let adjust_horizontal_to_line_end input dir status =
   let (input, done) = adjust_selection_for_horizontal_change input dir status in
   if done then input else
     let shift : isize =
-      let current_line = index input.lines (U.v input.edit_point.line) in
+      let current_line = vec_index input.lines input.edit_point.line in
       match dir with
 	| DBackward -> I.(0l -^ (u_to_i input.edit_point.index))
 	| DForward -> u_to_i U.((line_length input.lines input.edit_point.line) -^ input.edit_point.index)
@@ -357,11 +358,11 @@ let offset_to_text_point input abs_point =
 *)
 
 (* BEGIN CHANGED CODE *)
-type loop_acc (input:selection) (i:nat{i <= U.v (text_length input.lines)}) =
+type loop_acc (input:selection) (i:usize{U.(i <=^ text_length input.lines)}) =
   begin let total_lines = text_length input.lines in
   dtuple4
     (small_usize)
-    (fun _ -> line:small_usize{U.(line <^ total_lines) && U.v line <= i})
+    (fun _ -> line:small_usize{U.(line <^ total_lines) && U.(line <=^ i)})
     (fun _ line -> index:small_usize{U.(index <=^ line_length input.lines line)})
     (fun remainder line index -> stopped:bool{
       if stopped then
@@ -373,17 +374,17 @@ type loop_acc (input:selection) (i:nat{i <= U.v (text_length input.lines)}) =
 
 val offset_to_text_point_loop:
   input:selection ->
-  i:nat{i < U.v (text_length input.lines)} ->
+  i:usize{U.(i <^ text_length input.lines)} ->
   text_line:line_string ->
   loop_acc input i ->
-  Tot (loop_acc input (i + 1))
+  Tot (loop_acc input U.(i +^ 1ul))
 let offset_to_text_point_loop input i _ (| remainder, line, index, stopped |) =
-  let line_length = line_length input.lines (U.uint_to_t i) in
+  let line_length = line_length input.lines i in
   if stopped then (| remainder, line, index, stopped |) else
   if U.(remainder >^ line_length) then
-    (| U.(remainder -^ line_length -^ 1ul), U.uint_to_t i,  0ul, false |)
+    (| U.(remainder -^ line_length -^ 1ul), i,  0ul, false |)
   else begin
-    (| 0ul, U.uint_to_t i, remainder, true |)
+    (| 0ul, i, remainder, true |)
   end
 
 val offset_to_text_point_alt :
@@ -393,9 +394,9 @@ val offset_to_text_point_alt :
  let offset_to_text_point_alt input abs_point =
   let total_length = U.uint_to_t (text_total_chars input.lines) in
   let total_lines = text_length input.lines in
-  let acc : loop_acc input 0 = (| abs_point, 0ul, 0ul, false |) in
-  let (| remainder, line, index, stopped |) : loop_acc input ((U.v total_lines) - 1) =
-    foldl input.lines (loop_acc input) acc (offset_to_text_point_loop input)
+  let acc : loop_acc input 0ul = (| abs_point, 0ul, 0ul, false |) in
+  let (| remainder, line, index, stopped |) : loop_acc input U.(total_lines -^ 1ul) =
+    vec_foldl input.lines (loop_acc input) acc (offset_to_text_point_loop input)
   in
   if stopped then begin
     { line; index }
@@ -407,7 +408,7 @@ val offset_to_text_point_alt :
 
 let monotonicity_loop_invariant
   (input:selection)
-  (i:nat{i < U.v (text_length input.lines)})
+  (i:usize{U.(i <^ text_length input.lines)})
   (acc_x: loop_acc input i)
   (acc_y: loop_acc input i) =
   let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
@@ -433,21 +434,21 @@ let monotonicity_loop_invariant
 
 let offset_to_text_point_loop_monotonicity
   (input:selection)
-  (i: nat{i < U.v (text_length input.lines)})
+  (i: usize{U.(i <^ text_length input.lines)})
    (acc_x: loop_acc input i)
   (acc_y: loop_acc input i)
   (text_line:line_string)
   : Lemma
   (requires (monotonicity_loop_invariant input i acc_x acc_y))
   (ensures (
-      if i = U.v (text_length input.lines) - 1 then true else
+      if i = U.(text_length input.lines -^ 1ul) then true else
       let new_acc_x =
 	offset_to_text_point_loop input i text_line acc_x
       in
       let new_acc_y =
 	offset_to_text_point_loop input i text_line acc_y
       in
-      monotonicity_loop_invariant input (i + 1) new_acc_x new_acc_y
+      monotonicity_loop_invariant input U.(i +^ 1ul) new_acc_x new_acc_y
   )) =
   let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
   let (| remainder_y, line_y, index_y, stopped_y |) = acc_y in
@@ -466,7 +467,7 @@ let offset_to_text_point_loop_monotonicity
   ()
 
 let both_acc input i = acc:(loop_acc input i & loop_acc input i){
-  if i = U.v (text_length input.lines) then true else
+  if i = text_length input.lines then true else
   let (acc_x, acc_y) = acc in monotonicity_loop_invariant input i acc_x acc_y
 }
 
@@ -481,9 +482,9 @@ let offset_to_text_point_monotonicity
   )
   =
   let total_lines = text_length input.lines in
-  let acc : both_acc input 0 = ((| x, 0ul, 0ul, false |), (| y, 0ul, 0ul, false |) ) in
-  let ((| remainder_x, line_x, index_x, stopped_x |), (| remainder_y, line_y, index_y, stopped_y |)) : (both_acc input ((U.v total_lines) - 1)) =
-    foldl input.lines (fun i -> both_acc input i) acc (fun i text_line (acc_x, acc_y) ->
+  let acc : both_acc input 0ul = ((| x, 0ul, 0ul, false |), (| y, 0ul, 0ul, false |) ) in
+  let ((| remainder_x, line_x, index_x, stopped_x |), (| remainder_y, line_y, index_y, stopped_y |)) : both_acc input total_lines =
+    vec_foldl input.lines (fun i -> both_acc input i) acc (fun i text_line (acc_x, acc_y) ->
       let new_acc_x = offset_to_text_point_loop input i text_line acc_x in
       let new_acc_y = offset_to_text_point_loop input i text_line acc_y in
       offset_to_text_point_loop_monotonicity input i acc_x acc_y text_line;

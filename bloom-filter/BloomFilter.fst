@@ -164,63 +164,6 @@ let remove_hash bf hash =
       adjust_second_slot bf hash false
   end
 
-let lemma_remove_hash_prelim
-  (bf: bloom_storage_u8)
-  (removed_hash: u32)
-  (idx: valid_index)
-  : Lemma (requires (
-    let new_bf = remove_hash bf removed_hash in
-    slot_is_empty new_bf idx /\
-    not (slot_is_empty bf idx)
-  ))
-  (ensures (False)) =
-    (* Here we prove by contradiction that
-       slot_is_empty bf idx ! *)
-    let new_bf = remove_hash bf removed_hash in
-    if (first_slot_is_empty bf removed_hash) then
-      ()
-    else begin
-      let bf' = adjust_first_slot bf removed_hash false in
-      if (second_slot_is_empty bf' removed_hash) then
-	()
-      else begin
-        let new_bf' = adjust_second_slot bf' removed_hash false in
-        assert (new_bf' = new_bf);
-	(* Only this case is tricky *)
-	if idx <> (first_slot_index removed_hash) &&
-	  idx <> (second_slot_index removed_hash)
-	then
-	  ()
-	else
-	  admit()//We lack a lemma that says that decrementing an empty bucket will cause it to
-	  // remain empty
-      end
-    end
-
-let lemma_remove_hash1
-  (bf: bloom_storage_u8)
-  (removed_hash: u32)
-  (hash: u32)
-  : Lemma (requires (
-    first_slot_is_empty (remove_hash bf removed_hash) hash
-  ))
-  (ensures (first_slot_is_empty bf hash)) =
-    if not (first_slot_is_empty bf hash) then
-    lemma_remove_hash_prelim bf removed_hash (first_slot_index hash)
-
-let lemma_remove_hash2
-  (bf: bloom_storage_u8)
-  (removed_hash: u32)
-  (hash:u32)
-  : Lemma (requires (
-    second_slot_is_empty (remove_hash bf removed_hash) hash
-  ))
-  (ensures (
-    second_slot_is_empty bf hash
-  )) =
-  if not (second_slot_is_empty bf hash) then
-    lemma_remove_hash_prelim bf removed_hash (second_slot_index hash)
-
 val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
   vec_all bf.counters (fun x -> x = 0uy)
@@ -272,14 +215,7 @@ let remove_element bf e =
   (* *)   : Lemma (ensures (not (contains new_bf.ghost_state.elements e')))
   (* *)   =
   (* *)   let hash_e' = hash e' in
-  (* *)   Classical.or_elim
-  (* *)     #(first_slot_is_empty new_bf hash_e')
-  (* *)     #(second_slot_is_empty new_bf hash_e')
-  (* *)     #(fun _ -> first_slot_is_empty bf hash_e' \/
-  (* *)       second_slot_is_empty bf hash_e')
-  (* *)     (fun _ -> lemma_remove_hash1 bf hash_e hash_e')
-  (* *)     (fun _ -> lemma_remove_hash2 bf hash_e hash_e');
-  (* *)   ()
+  (* *)	    admit()
   (* *) in
   (* *) Classical.forall_intro inner_lemma;
   new_bf
