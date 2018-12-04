@@ -139,7 +139,10 @@ let insert_element bf e =
   (* *) let new_bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
   insert_hash bf hash_val
 
-val remove_element: bf:bloom_storage_u8 -> element -> Tot bloom_storage_u8
+val remove_element:
+  bf:bloom_storage_u8 ->
+  e:element{contains bf.ghost_state.elements e} ->
+  Tot bloom_storage_u8
 let remove_element bf e =
   let hash_e = hash e in
   (* *) let new_bf = { bf with ghost_state = spec_remove_element bf.ghost_state e } in

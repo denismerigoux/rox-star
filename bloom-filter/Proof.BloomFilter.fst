@@ -194,6 +194,13 @@ let insert_element_lemma (bf:bloom_storage_u8) (e:element)
 (**** Remove element properties ****)
 
 
-let remove_element_lemma_element_invalidation (bf:bloom_storage_u8) (e:element)
+let remove_element_lemma_element_invalidation
+  (bf:bloom_storage_u8) (e:element{contains bf.ghost_state.elements e})
   : Lemma(requires (valid_bf bf)) (ensures (element_invalidation (remove_element bf e))) =
- admit()
+  let new_bf = remove_element bf e in let hash_e = hash e in
+  remove_hash_lemma bf hash_e;
+  let forall_intro_lemma (e':element{contains new_bf.ghost_state.elements e'})
+    : Lemma (ensures (might_contain_hash new_bf (hash e'))) =
+    admit()
+  in
+  Classical.forall_intro forall_intro_lemma
