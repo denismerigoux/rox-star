@@ -51,13 +51,13 @@ let first_slot_index (hash: u32) : r:usize{Usize.(r <^ _ARRAY_SIZE)} =
 let second_slot_index (hash: u32) : usize =
   hash2 hash
 
-val slot_is_empty: bf:bloom_storage_u8 -> valid_index -> Tot bool
-let slot_is_empty bf idx =
-  (array_index bf.counters idx) = 0uy
-
 val slot_value: bf:bloom_storage_u8 -> valid_index -> Tot u8
 let slot_value bf idx =
   array_index bf.counters idx
+
+val slot_is_empty: bf:bloom_storage_u8 -> valid_index -> Tot bool
+let slot_is_empty bf idx =
+  slot_value bf idx = 0uy
 
 val first_slot_is_empty : bf:bloom_storage_u8 -> u32 -> Tot bool
 let first_slot_is_empty bf hash = slot_is_empty bf (first_slot_index hash)

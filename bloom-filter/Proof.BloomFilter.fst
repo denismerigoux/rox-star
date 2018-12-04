@@ -17,7 +17,7 @@ let modified_only_one_slot
   (new_bf:bloom_storage_u8)
   (idx:valid_index) =
   forall (idx':valid_index{idx <> idx'}).
-  array_index new_bf.counters idx' = array_index old_bf.counters idx'
+  slot_value new_bf idx' = slot_value old_bf idx'
 
 let adjust_slot_lemma
   (bf:bloom_storage_u8)
@@ -71,7 +71,7 @@ let modified_hash_slots
   let idx1 = first_slot_index hash in
   let idx2 = second_slot_index hash in
   forall (idx':valid_index{idx' <> idx1 /\ idx' <> idx2}).
-  array_index new_bf.counters idx' = array_index old_bf.counters idx'
+  slot_value new_bf idx' = slot_value old_bf idx'
 
 let insert_hash_lemma
   (bf:bloom_storage_u8)
@@ -154,16 +154,17 @@ type valid_bloom_storage_u8 = bf:bloom_storage_u8{element_invalidation bf /\ cou
 
 type add_only_bloom_storage_u8 = bf:valid_bloom_storage_u8{add_only_bloom_filter bf}
 
-let lemma_insert_hash_prelim
-  (bf: bloom_storage_u8)
-  (idx: valid_index)
+let lemma_insert_hash_prelim1 (bf: bloom_storage_u8) (idx: valid_index)
   : Lemma (requires (U8.v (slot_value bf idx) < _MAX_U8))
-    (ensures (U8.v (slot_value (adjust_slot bf idx true) idx) = U8.v (slot_value bf idx) + 1)) =
-    ()
+    (ensures (U8.v (slot_value (adjust_slot bf idx true) idx) = U8.v (slot_value bf idx) + 1))
+  = ()
 
-let lemma_insert_hash1
-  (bf: bloom_storage_u8)
-  (hash:u32)
+let lemma_insert_hash_prelim2 (bf: bloom_storage_u8) (idx: valid_index)
+  : Lemma (requires (U8.v (slot_value bf idx) = _MAX_U8))
+    (ensures (U8.v (slot_value (adjust_slot bf idx true) idx) = _MAX_U8))
+  = ()
+
+let lemma_insert_hash_non_saturating1 (bf: bloom_storage_u8) (hash:u32)
   : Lemma (requires (
       U8.v (slot_value bf (first_slot_index hash)) < _MAX_U8)
     )
@@ -171,11 +172,18 @@ let lemma_insert_hash1
       U8.v (slot_value (insert_hash bf hash) (first_slot_index hash)) >
 	U8.v (slot_value bf (first_slot_index hash))
     )) =
-    lemma_insert_hash_prelim bf (first_slot_index hash)
+    let idx1 = first_slot_index hash in let idx2 = second_slot_index hash in
+    lemma_insert_hash_prelim1 bf idx1;
+    let bf0 = adjust_first_slot bf hash true in
+    adjust_first_slot_lemma bf hash true; adjust_second_slot_lemma bf0 hash true;
+    if idx1 = idx2 then begin
+      if U8.v (slot_value bf0 idx1) = _MAX_U8 then
+        lemma_insert_hash_prelim2 bf0 idx1
+      else
+        lemma_insert_hash_prelim1 bf0 idx1
+    end else ()
 
-let lemma_insert_hash2
-  (bf: bloom_storage_u8)
-  (hash:u32)
+let lemma_insert_hash_non_saturating2 (bf: bloom_storage_u8) (hash:u32)
   : Lemma (requires (
       U8.v (slot_value bf (second_slot_index hash)) < _MAX_U8)
     )
@@ -183,13 +191,16 @@ let lemma_insert_hash2
       U8.v (slot_value (insert_hash bf hash) (second_slot_index hash)) >
 	U8.v (slot_value bf (second_slot_index hash))
     )) =
-    let idx = second_slot_index hash in
-    if idx = first_slot_index hash then
-      lemma_insert_hash1 bf hash
-    else begin
-      let new_bf0 = adjust_first_slot bf hash true in
-      lemma_insert_hash_prelim new_bf0 (second_slot_index hash)
-    end
+    let idx1 = first_slot_index hash in let idx2 = second_slot_index hash in
+    lemma_insert_hash_prelim1 bf idx2;
+    let bf0 = adjust_first_slot bf hash true in
+    adjust_first_slot_lemma bf hash true; adjust_second_slot_lemma bf0 hash true;
+    if idx1 = idx2 then begin
+      if U8.v (slot_value bf0 idx2) = _MAX_U8 then
+        lemma_insert_hash_prelim2 bf0 idx1
+      else
+        lemma_insert_hash_prelim1 bf0 idx1
+    end else ()
 
 (*
  (* *) lemma_count_invariant bf;
