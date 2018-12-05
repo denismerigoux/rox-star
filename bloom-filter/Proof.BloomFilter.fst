@@ -142,14 +142,20 @@ let element_invalidation (bf: bloom_storage_u8) =
       (not (contains bf.ghost_state.elements e))
   ))
 
+let all_elements_counts (bf:bloom_storage_u8) (idx:valid_index) : Tot count =
+   List.Tot.Base.fold_left (fun (sum : count) ((e, count) : (element & count)) ->
+     let sum = if first_slot_index (hash e) = idx then sum + count else sum in
+     if second_slot_index (hash e) = idx then sum + count else sum
+   ) 0 bf.ghost_state.elements
+
 let count_invariant_property (bf:bloom_storage_u8) (e:element) : Tot bool =
   let hash_e = hash e in
-  let val1 = slot_value bf (first_slot_index hash_e) in
-  let val2 = slot_value bf (second_slot_index hash_e) in
+  let idx1 = first_slot_index hash_e in let idx2 = second_slot_index hash_e in
+  let val1 = slot_value bf idx1 in let val2 = slot_value bf idx2 in
   begin if U8.v val1 = _MAX_U8 then true else
-    element_count bf.ghost_state.elements e <= U8.v val1
+    all_elements_counts bf idx1 = U8.v val1
   end && begin if U8.v val2 = _MAX_U8 then true else
-    element_count bf.ghost_state.elements e <= U8.v val2
+    all_elements_counts bf idx2 = U8.v val2
   end
 
 let count_invariant (bf:bloom_storage_u8) =
@@ -158,13 +164,33 @@ let count_invariant (bf:bloom_storage_u8) =
 
 let valid_bf (bf:bloom_storage_u8) = element_invalidation bf /\ count_invariant bf
 
-let insert_element_lemma (bf:bloom_storage_u8) (e:element)
+
+let insert_element_lemma_count_invariant_prelim (bf:bloom_storage_u8) (e:element) (idx:valid_index)
+  : Lemma (requires (all_elements_counts bf idx = U8.v (slot_value bf idx))) (ensures (
+    let new_bf = insert_hash bf (hash e) in
+    if U8.v (slot_value new_bf idx) = _MAX_U8 then true else
+      all_elements_counts new_bf idx = U8.v (slot_value new_bf idx)
+  )) = insert_hash_lemma bf (hash e);admit()
+
+let insert_element_lemma_count_invariant (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (valid_bf bf)) (ensures (valid_bf (insert_element bf e)))
-  = let new_bf = insert_element bf e in let hash_e = hash e in
-  insert_hash_lemma bf hash_e;
+  = let hash_e = hash e in let new_bf = insert_hash bf hash_e in
+  insert_hash_lemma bf (hash e);
   let forall_intro_lemma (e':element{contains new_bf.ghost_state.elements e'})
     : Lemma (ensures (count_invariant_property new_bf e')) =
-    assert(count_invariant_property bf e')
+    assert(count_invariant_property bf e');
+    let hash_e' = hash e' in
+    let idx1_e' = first_slot_index hash_e' in let idx2_e' = second_slot_index hash_e' in
+    begin if U8.v (slot_value bf idx1_e') = _MAX_U8 then
+      assert(U8.v (slot_value new_bf idx1_e') = _MAX_U8)
+    else
+      insert_element_lemma_count_invariant_prelim bf e idx1_e'
+    end;
+     begin if U8.v (slot_value bf idx2_e') = _MAX_U8 then
+      assert(U8.v (slot_value new_bf idx2_e') = _MAX_U8)
+    else
+      insert_element_lemma_count_invariant_prelim bf e idx2_e'
+    end
   in Classical.forall_intro forall_intro_lemma
 
 (**** Remove element properties ****)
