@@ -18,14 +18,14 @@ let modified_only_one_slot (old_bf:bloom_storage_u8) (new_bf:bloom_storage_u8) (
   forall (idx':valid_index{idx <> idx'}). slot_value new_bf idx' = slot_value old_bf idx'
 
 let adjust_slot_lemma (bf:bloom_storage_u8) (idx:valid_index)
-  (increment:bool{valid_incr bf idx increment}) : Lemma (ensures (
+  (increment:bool) : Lemma (ensures (
     let new_bf = adjust_slot bf idx increment in
     modified_only_one_slot bf new_bf idx /\
     begin if increment then not (slot_is_empty new_bf idx) else true end
   )) = ()
 
 let adjust_first_slot_lemma (bf:bloom_storage_u8) (hash:u32)
-  (increment:bool{valid_incr bf (first_slot_index hash) increment}) : Lemma (ensures (
+  (increment:bool) : Lemma (ensures (
     let new_bf = adjust_first_slot bf hash increment in
     let idx = first_slot_index hash in
     modified_only_one_slot bf new_bf idx /\
@@ -33,7 +33,7 @@ let adjust_first_slot_lemma (bf:bloom_storage_u8) (hash:u32)
   )) = adjust_slot_lemma bf (first_slot_index hash) increment
 
 let adjust_second_slot_lemma (bf:bloom_storage_u8) (hash:u32)
-  (increment:bool{valid_incr bf (second_slot_index hash) increment}) : Lemma (ensures (
+  (increment:bool) : Lemma (ensures (
     let new_bf = adjust_second_slot bf hash increment in
     let idx = second_slot_index hash in
     modified_only_one_slot bf new_bf idx /\
@@ -99,64 +99,39 @@ let insert_hash_lemma (bf:bloom_storage_u8) (hash:u32) : Lemma (ensures (
 
 (**** Remove hash properties ****)
 
-let remove_hash_prelim_lemma (bf: bloom_storage_u8) (idx: valid_index)
-  : Lemma (requires (U8.v (slot_value bf idx) > 0 && U8.v (slot_value bf idx) < _MAX_U8))
-    (ensures (U8.v (slot_value (adjust_slot bf idx false) idx) = U8.v (slot_value bf idx) - 1))
-  = ()
+let decrease_by (n:nat) (old_bf:bloom_storage_u8) (new_bf:bloom_storage_u8) (idx:valid_index) =
+      if U8.v (slot_value new_bf idx) = _MAX_U8 then
+      U8.v (slot_value new_bf idx) = _MAX_U8
+    else if U8.v (slot_value old_bf idx) < n then
+      U8.v (slot_value new_bf idx) = _MAX_U8
+    else
+      U8.(slot_value new_bf idx <^ slot_value old_bf idx)
 
-let decrease_or_saturate (old_bf:bloom_storage_u8) (new_bf:bloom_storage_u8) (idx:valid_index) =
-  if U8.v (slot_value old_bf idx) = _MAX_U8 then
-    U8.v (slot_value new_bf idx) = _MAX_U8
-  else if U8.v (slot_value old_bf idx) = 0 then
-    U8.v (slot_value new_bf idx) = 0
-  else
-    U8.(slot_value new_bf idx <^ slot_value old_bf idx)
+let decrease_or_saturate
+  (old_bf:bloom_storage_u8) (new_bf:bloom_storage_u8) (idx1 idx2:valid_index)
+  =
+  if idx1 = idx2 then decrease_by 2 old_bf new_bf idx1 else
+    decrease_by 1 old_bf new_bf idx1 && decrease_by 1 old_bf new_bf idx2
 
-#reset-options "--z3rlimit 20"
+let underflow_lemma () : Lemma (ensures (U8.(v (0uy -%^ 1uy)) = _MAX_U8)) =
+  assert_norm(U8.(v (0uy -%^ 1uy)) = _MAX_U8)
 
-let remove_hash_lemma1 (bf: bloom_storage_u8) (hash:u32)
-  : Lemma (ensures (
-    let new_bf = remove_hash bf hash in let idx1 = first_slot_index hash in
-    if not (first_slot_is_empty bf hash) &&
-      not (second_slot_is_empty (adjust_first_slot bf hash false) hash)
-    then decrease_or_saturate bf new_bf idx1
-    else slot_value bf idx1 = slot_value new_bf idx1
-   ))
-  = ()
+let remove_hash_prelim_lemma (bf:bloom_storage_u8) (idx:valid_index)
+  : Lemma (ensures (decrease_by 1 bf (adjust_slot bf idx false) idx)) =
+  ()
 
-let remove_hash_lemma2 (bf: bloom_storage_u8) (hash:u32)
-  : Lemma (ensures (
-    let new_bf = remove_hash bf hash in let idx2 = second_slot_index hash in
-    if not (first_slot_is_empty bf hash) &&
-      not (second_slot_is_empty (adjust_first_slot bf hash false) hash)
-    then decrease_or_saturate bf new_bf idx2
-    else slot_value bf idx2 = slot_value new_bf idx2
-   ))
-  = ()
-
-let remove_hash_lemma
-  (bf:bloom_storage_u8)
-  (hash:u32)
+let remove_hash_lemma (bf: bloom_storage_u8) (hash:u32)
   : Lemma (ensures (
     let new_bf = remove_hash bf hash in
-    let idx1 = first_slot_index hash in let idx2 = second_slot_index hash in
-    modified_hash_slots bf new_bf hash /\ begin
-      if not (first_slot_is_empty bf hash) &&
-      not (second_slot_is_empty (adjust_first_slot bf hash false) hash)
-      then decrease_or_saturate bf new_bf idx1 /\ decrease_or_saturate bf new_bf idx2
-      else (slot_value bf idx1 = slot_value new_bf idx1 /\
-	slot_value bf idx2 = slot_value new_bf idx2)
-    end
-  )) =
-  remove_hash_lemma1 bf hash;
-  remove_hash_lemma2 bf hash;
-  if (first_slot_is_empty bf hash) then () else
-    let bf0 = adjust_first_slot bf hash false in
-    adjust_first_slot_lemma bf hash false;
-    if (second_slot_is_empty bf0 hash) then
-      adjust_first_slot_lemma bf0 hash true
-    else
-      adjust_second_slot_lemma bf0 hash false
+    let idx1 = first_slot_index hash in
+    let idx2 = second_slot_index hash in
+    decrease_or_saturate bf new_bf idx1 idx2
+   ))
+  = underflow_lemma ();
+  let idx1 = first_slot_index hash in let idx2 = second_slot_index hash in
+  remove_hash_prelim_lemma bf idx1;
+  let bf0 = adjust_slot bf idx1 false in
+  remove_hash_prelim_lemma bf0 idx2
 
 (**** Insert element properties ****)
 
@@ -193,6 +168,7 @@ let insert_element_lemma (bf:bloom_storage_u8) (e:element)
 
 (**** Remove element properties ****)
 
+#reset-options "--z3rlimit 20"
 
 let remove_element_lemma_element_invalidation
   (bf:bloom_storage_u8) (e:element{contains bf.ghost_state.elements e})
@@ -201,6 +177,7 @@ let remove_element_lemma_element_invalidation
   remove_hash_lemma bf hash_e;
   let forall_intro_lemma (e':element{contains new_bf.ghost_state.elements e'})
     : Lemma (ensures (might_contain_hash new_bf (hash e'))) =
+    let hash_e' = hash e' in
     admit()
   in
   Classical.forall_intro forall_intro_lemma

@@ -59,7 +59,7 @@ let same_elements_except (#a:eqtype) (l1 l2: count_list a) (e:a) =
 val decr_count:
   #a:eqtype ->
   l:count_list a ->
-  e : a{contains l e} ->
+  e : a ->
   Tot (l':count_list a{
       if element_count l e > 1 then
         same_elements l l'
@@ -71,7 +71,11 @@ let rec decr_count #a l e =
   | [] -> l
   | (e', old_count)::tl ->
     if e = e' then
-      (e', old_count - 1)::tl
+      if old_count = 0 then
+        (* We saturate at 0 *)
+        (e', old_count)::tl
+      else
+        (e', old_count - 1)::tl
     else
       (e', old_count)::(decr_count tl e)
 
@@ -103,14 +107,14 @@ let lemma_spec_insert_element
 
 val spec_remove_element:
   bf:spec_bloom_storage_u8 ->
-  e:element{contains bf.elements e} ->
+  e:element ->
   Tot spec_bloom_storage_u8
 let spec_remove_element bf e =
     { bf with elements = decr_count bf.elements e }
 
 let lemma_spec_remove_element
   (bf:spec_bloom_storage_u8)
-  (e:element{contains bf.elements e})
+  (e:element)
   : Lemma (ensures (
     let new_bf = spec_remove_element bf e in
     if element_count bf.elements e > 1 then

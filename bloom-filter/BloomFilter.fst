@@ -33,22 +33,22 @@ type bloom_storage_u8 = {
 
 let valid_index = i:usize{Usize.(i <^ _ARRAY_SIZE)}
 
-val hash1: u32 -> r:u32{U32.(r <^ _ARRAY_SIZE)}
+val hash1: u32 -> valid_index
 let hash1 hash =
   let and_value = U32.(hash &^ _KEY_MASK) in
   admit();//TODO: find how to make F* understand
   and_value
 
-val hash2: u32 -> r:u32{U32.(r <^ _ARRAY_SIZE)}
+val hash2: u32 -> valid_index
 let hash2 hash =
   let and_value = U32.((hash >>^ _KEY_SIZE) &^ _KEY_MASK) in
   admit();
   and_value
 
-let first_slot_index (hash: u32) : r:usize{Usize.(r <^ _ARRAY_SIZE)} =
+let first_slot_index (hash: u32) : valid_index =
   hash1 hash
 
-let second_slot_index (hash: u32) : usize =
+let second_slot_index (hash: u32) : valid_index =
   hash2 hash
 
 val slot_value: bf:bloom_storage_u8 -> valid_index -> Tot u8
@@ -70,27 +70,24 @@ let might_contain_hash bf hash =
   not (first_slot_is_empty bf hash) &&
   not (second_slot_is_empty bf hash)
 
-let valid_incr (bf:bloom_storage_u8) (idx:valid_index) (increment:bool) =
-  if not increment then not (slot_is_empty bf idx) else true
-
 val adjust_slot:
   bf:bloom_storage_u8 ->
   idx:valid_index ->
-  increment:bool{valid_incr bf idx increment} ->
+  increment:bool ->
   Tot (new_bf:bloom_storage_u8)
 let adjust_slot bf idx increment =
   let slot = array_index bf.counters idx in
   if slot <> 0xffuy then
     if increment then begin
-      { bf with counters = array_update bf.counters idx U8.(slot +^ 1uy) }
+      { bf with counters = array_update bf.counters idx U8.(slot +%^ 1uy) }
     end else
-      { bf with counters = array_update bf.counters idx U8.(slot -^ 1uy) }
+      { bf with counters = array_update bf.counters idx U8.(slot -%^ 1uy) }
   else bf
 
 val adjust_first_slot:
   bf:bloom_storage_u8 ->
   hash:u32 ->
-  increment:bool{valid_incr bf (first_slot_index hash) increment} ->
+  increment:bool ->
   Tot (new_bf:bloom_storage_u8)
 let adjust_first_slot bf hash increment =
   adjust_slot bf (first_slot_index hash) increment
@@ -98,7 +95,7 @@ let adjust_first_slot bf hash increment =
 val adjust_second_slot:
   bf:bloom_storage_u8 ->
   hash:u32 ->
-  increment:bool{valid_incr bf (second_slot_index hash) increment} ->
+  increment:bool ->
   Tot (new_bf:bloom_storage_u8)
 let adjust_second_slot bf hash increment =
   adjust_slot bf (second_slot_index hash) increment
@@ -116,18 +113,8 @@ val remove_hash:
   hash:u32 ->
   Tot (new_bf:bloom_storage_u8)
 let remove_hash bf hash =
-  (* BEGIN ADDED CODE *)
-  (* They never check before substracting in the slots ! Negative overflow might occur *)
-  if (first_slot_is_empty bf hash)  then bf else begin
-  (* END ADDED CODE*)
-    let bf = adjust_first_slot bf hash false in
-    (* BEGIN ADDED CODE *)
-    if (second_slot_is_empty bf hash) then begin
-      adjust_first_slot bf hash true
-    end else
-      (* END ADDED CODE *)
-      adjust_second_slot bf hash false
-  end
+  let bf = adjust_first_slot bf hash false in
+  adjust_second_slot bf hash false
 
 val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
@@ -141,7 +128,7 @@ let insert_element bf e =
 
 val remove_element:
   bf:bloom_storage_u8 ->
-  e:element{contains bf.ghost_state.elements e} ->
+  e:element ->
   Tot bloom_storage_u8
 let remove_element bf e =
   let hash_e = hash e in
