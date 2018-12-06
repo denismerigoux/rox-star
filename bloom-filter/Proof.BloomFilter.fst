@@ -12,7 +12,7 @@ open Rust
 open Spec.BloomFilter
 open BloomFilter
 
-(**** Adjust slot properties ****)
+(**** Adjust slot properties *)
 
 #reset-options "--max_fuel 0"
 
@@ -39,7 +39,7 @@ let adjust_slot_lemma (bf:bloom_storage_u8) (idx:valid_index)
     end
   )) = ()
 
-(**** Insert hash properties ****)
+(**** Insert hash properties *)
 
 let increase_or_saturate (old_bf:bloom_storage_u8) (new_bf:bloom_storage_u8)
   (hash:u32) (idx:valid_index) =
@@ -64,7 +64,7 @@ let insert_hash_lemma (old_bf: bloom_storage_u8) (hash:u32) (idx:valid_index)
   ))
   = ()
 
-(**** Remove hash properties ****)
+(**** Remove hash properties *)
 
 let is_almost_min (bf:bloom_storage_u8) (idx:valid_index) : Tot bool =
   slot_value bf idx = 1uy
@@ -95,18 +95,18 @@ let remove_hash_lemma (bf: bloom_storage_u8) (hash:u32) (idx:valid_index)
    ))
   = ()
 
-(**** Insert element properties ****)
+(**** Invariants *)
 
 let element_invalidation (bf: bloom_storage_u8) (e:element) =
   not (might_contain_hash bf (hash e)) ==> not (contains bf.ghost_state.elements e)
 
-let one_element_count (idx:valid_index) (sum: count) (e_count: (element & count)) : Tot count =
+let one_element_count (idx:valid_index)  (e_count: (element & count)) (sum: count) : Tot count =
    let (e, count) = e_count in
    let sum = if first_slot_index (hash e) = idx then sum + count else sum in
    if second_slot_index (hash e) = idx then sum + count else sum
 
 let all_elements_counts (bf:bloom_storage_u8) (idx:valid_index) : Tot count =
-   List.Tot.Base.fold_left (one_element_count idx) 0 bf.ghost_state.elements
+   List.Tot.Base.fold_right (one_element_count idx) bf.ghost_state.elements 0
 
 let count_invariant_property (bf:bloom_storage_u8) (idx:valid_index) : Tot bool =
   if is_max bf idx then true else
@@ -115,12 +115,12 @@ let count_invariant_property (bf:bloom_storage_u8) (idx:valid_index) : Tot bool 
 let count_invariant (bf:bloom_storage_u8) (idx:valid_index) =
     count_invariant_property bf idx
 
+(**** Insert element properties *)
+
 let insert_element_element_invalidation_lemma (bf:bloom_storage_u8) (e:element) (e':element)
   : Lemma (requires (element_invalidation bf e'))
     (ensures (element_invalidation (insert_element bf e) e'))
   = ()
-
-#reset-options "--max_fuel 2"
 
 let insert_element_all_elements_counts_lemma1 (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (first_slot_index (hash e) <> second_slot_index (hash e)))
@@ -131,6 +131,7 @@ let insert_element_all_elements_counts_lemma1 (bf:bloom_storage_u8) (e:element)
     ))
   = admit()
 
+
 let insert_element_all_elements_counts_lemma2 (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (first_slot_index (hash e) = second_slot_index (hash e)))
     (ensures (let new_bf = insert_element bf e in
@@ -139,9 +140,7 @@ let insert_element_all_elements_counts_lemma2 (bf:bloom_storage_u8) (e:element)
     ))
   = admit()
 
-#reset-options "--max_fuel 0"
-
-let insert_element_count_invariant_lemma
+let insert_element_count_invariant_lemma_prelim
   (bf:bloom_storage_u8) (e:element) (idx:valid_index)
   : Lemma (requires (not (is_max bf idx) /\ all_elements_counts bf idx = U8.v (slot_value bf idx)))
     (ensures (let new_bf = insert_element bf e in
@@ -159,6 +158,33 @@ let insert_element_count_invariant_lemma
       else insert_element_all_elements_counts_lemma2 bf e
   else ()
 
-(**** Remove element properties ****)
+let insert_element_count_invariant_lemma (bf:bloom_storage_u8) (e:element) (idx:valid_index)
+  : Lemma (requires (count_invariant bf idx)) (ensures (
+    count_invariant (insert_element bf e) idx
+  )) = if is_max bf idx then () else insert_element_count_invariant_lemma_prelim bf e idx
 
-let _ = ()
+(**** Remove element properties *)
+
+let remove_element_element_invalidation_prelim_lemma
+  (bf:bloom_storage_u8) (e e':element) (idx:valid_index)
+  : Lemma (requires (
+    (idx = first_slot_index (hash e') \/ idx = second_slot_index (hash e')) /\
+    element_count bf.ghost_state.elements e' > 0 /\
+    count_invariant bf idx /\ U8.(slot_value bf idx >^ 0uy)
+  )) (ensures (
+    let new_bf = remove_element bf e in U8.(slot_value new_bf idx >^ 0uy)
+  )) = admit()
+
+
+let remove_element_element_invalidation_lemma (bf:bloom_storage_u8) (e e':element)
+  : Lemma (requires (
+    element_invalidation bf e' /\ count_invariant bf (first_slot_index (hash e')) /\
+    count_invariant bf (second_slot_index (hash e'))
+  ))
+  (ensures (element_invalidation (remove_element bf e) e')) =
+  let new_bf = remove_element bf e in
+  if contains new_bf.ghost_state.elements e' then begin
+    let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
+    remove_element_element_invalidation_prelim_lemma bf e e' idx1;
+    remove_element_element_invalidation_prelim_lemma bf e e' idx2
+  end else ()

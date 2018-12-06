@@ -17,6 +17,8 @@ assume val hash: element -> u32
 
 type count = n:nat
 
+#reset-options "--max_fuel 1"
+
 let contains (#a:eqtype) (l:list (a & count)) (e:a) : Tot bool =
   existsb (fun ((e', n) : a & count) -> e = e' && n > 0) l
 
@@ -29,6 +31,15 @@ type count_list (a:eqtype) = (l:list (a & count){no_duplicates l})
 
 let same_elements (#a: eqtype) (l1 l2: count_list a) =
   (forall (e:a). contains l1 e <==> contains l2 e)
+
+val element_count: #a:eqtype ->
+  l:count_list a ->
+  e: a ->
+  Tot (c:count{c > 0 <==> contains #a l e}) (decreases l)
+let rec element_count #a l e = match l with
+  | [] -> 0
+  | (e', count)::tl ->
+    if e = e' then count else element_count tl e
 
 val incr_count:
   #a:eqtype ->
@@ -44,14 +55,20 @@ let rec incr_count #a l e =
     else
       (e', old_count)::(incr_count tl e)
 
-val element_count: #a:eqtype ->
-  l:count_list a ->
-  e: a ->
-  Tot count (decreases l)
-let rec element_count #a l e = match l with
-  | [] -> 0
-  | (e', count)::tl ->
-    if e = e' then count else element_count tl e
+let rec incr_count_lemma (#a:eqtype) (l:count_list a) (e:a{contains l e}) (e':a)
+  : Lemma (ensures (let l' = incr_count #a l e in
+    if e' = e then
+      element_count l' e' = element_count l e' + 1
+    else
+      element_count l' e' = element_count l e'
+  )) = let l' = incr_count #a l e in match l with
+    | [] -> ()
+    | (e'', old_count)::tl ->
+      if e' = e then if e = e'' then ()
+      else incr_count_lemma #a tl e e'
+      else if e' = e'' then ()
+      else if e'' = e then ()
+      else incr_count_lemma #a tl e e'
 
 let same_elements_except (#a:eqtype) (l1 l2: count_list a) (e:a) =
    (forall (e':a{e' <> e}). contains l1 e' <==> contains l2 e')
@@ -62,7 +79,7 @@ val decr_count:
   e : a ->
   Tot (l':count_list a{
       if element_count l e > 1 then
-        same_elements l l'
+        same_elements l l' /\ element_count l' e = element_count l e - 1
       else
         same_elements_except l l' e /\ not (contains l' e)
   }) (decreases l)
@@ -96,13 +113,13 @@ let spec_insert_element bf e =
 let lemma_spec_insert_element
   (bf:spec_bloom_storage_u8)
   (e:element)
+  (e':element)
   : Lemma (ensures (
     let new_bf = spec_insert_element bf e in
-    (forall(e':element{e' <> e}).
-      (contains bf.elements e' <==> contains new_bf.elements e'))
-    /\ contains new_bf.elements e
-  )) =
-  ()
+    if e = e'
+    then element_count new_bf.elements e' = element_count bf.elements e' + 1
+    else element_count new_bf.elements e' = element_count bf.elements e'
+  )) = if contains bf.elements e then incr_count_lemma bf.elements e e' else ()
 
 
 val spec_remove_element:
