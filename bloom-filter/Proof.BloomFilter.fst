@@ -124,12 +124,16 @@ let count_invariant (bf:bloom_storage_u8) (idx:valid_index) =
 
 (**** Insert element properties *)
 
+(***** Element invalidation *)
+
 #reset-options "--max_fuel 1 --z3rlimit 20"
 
 let insert_element_element_invalidation_lemma (bf:bloom_storage_u8) (e:element) (e':element)
   : Lemma (requires (element_invalidation bf e'))
     (ensures (element_invalidation (insert_element bf e) e'))
   = ()
+
+(***** Count invariant *)
 
 let rec compute_count_sum_lemma1 (l:count_list element) (e:element) (idx:valid_index)
   : Lemma (requires (
@@ -211,35 +215,13 @@ let insert_element_count_invariant_lemma_prelim
   else insert_element_all_elements_counts_lemma3 bf e idx
 
 let insert_element_count_invariant_lemma (bf:bloom_storage_u8) (e:element) (idx:valid_index)
-  : Lemma (requires (count_invariant bf idx)) (ensures (
-    count_invariant (insert_element bf e) idx
-  )) = if is_max bf idx then () else insert_element_count_invariant_lemma_prelim bf e idx
+  : Lemma (requires (count_invariant bf idx))
+    (ensures (count_invariant (insert_element bf e) idx))
+  = if is_max bf idx then () else insert_element_count_invariant_lemma_prelim bf e idx
 
 (**** Remove element properties *)
 
-let remove_element_element_invalidation_prelim_lemma
-  (bf:bloom_storage_u8) (e e':element) (idx:valid_index)
-  : Lemma (requires (
-    (idx = first_slot_index (hash e') \/ idx = second_slot_index (hash e')) /\
-    element_count bf.ghost_state.elements e' > 0 /\
-    count_invariant bf idx /\ U8.(slot_value bf idx >^ 0uy)
-  )) (ensures (
-    let new_bf = remove_element bf e in U8.(slot_value new_bf idx >^ 0uy)
-  )) = admit()
-
-
-let remove_element_element_invalidation_lemma (bf:bloom_storage_u8) (e e':element)
-  : Lemma (requires (
-    element_invalidation bf e' /\ count_invariant bf (first_slot_index (hash e')) /\
-    count_invariant bf (second_slot_index (hash e'))
-  ))
-  (ensures (element_invalidation (remove_element bf e) e')) =
-  let new_bf = remove_element bf e in
-  if contains new_bf.ghost_state.elements e' then begin
-    let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
-    remove_element_element_invalidation_prelim_lemma bf e e' idx1;
-    remove_element_element_invalidation_prelim_lemma bf e e' idx2
-  end else ()
+(***** Count invariant *)
 
 let remove_element_count_invariant_lemma_prelim
   (bf:bloom_storage_u8) (e:element) (idx:valid_index)
@@ -251,6 +233,70 @@ let remove_element_count_invariant_lemma_prelim
   admit()
 
 let remove_element_count_invariant_lemma (bf:bloom_storage_u8) (e:element) (idx:valid_index)
-  : Lemma (requires (count_invariant bf idx)) (ensures (
-    count_invariant (remove_element bf e) idx
-  )) = admit()
+  : Lemma (requires (count_invariant bf idx)) (ensures (let new_bf = remove_element bf e in
+    count_invariant new_bf idx)) = admit()
+
+(***** Element invalidation *)
+
+let rec compute_sum_lemma4 (l:count_list element) (e':element) (idx:valid_index)
+  : Lemma (requires (
+    let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
+    idx = idx1 \/ idx = idx2
+  )) (ensures (compute_count_sum idx l >= element_count l e')) = match l with
+  | [] -> ()
+  | (e'', count)::tl -> compute_sum_lemma4 tl e' idx
+
+let rec remove_element_same_count_lemma (bf:bloom_storage_u8) (e e':element) : Lemma (requires (e <> e'))
+  (ensures (let new_bf = remove_element bf e in
+    element_count bf.ghost_state.elements e' = element_count new_bf.ghost_state.elements e'
+  )) (decreases bf.ghost_state.elements)
+  = match bf.ghost_state.elements with
+  | [] -> ()
+  | (e'', old_count)::tl ->  remove_element_same_count_lemma
+    ({bf with  ghost_state = { bf.ghost_state with elements = tl} }) e e'
+
+
+let remove_element_element_invalidation_prelim_lemma1
+  (bf:bloom_storage_u8) (e e':element) (idx:valid_index)
+  : Lemma (requires (
+    (idx = first_slot_index (hash e') \/ idx = second_slot_index (hash e')) /\
+    element_count bf.ghost_state.elements e' > 0 /\ e <> e' /\
+    count_invariant bf idx /\ U8.(slot_value bf idx >^ 0uy)
+  )) (ensures (
+    let new_bf = remove_element bf e in U8.(slot_value new_bf idx >^ 0uy)
+  )) =  let new_bf = remove_element bf e in
+  remove_element_count_invariant_lemma bf e idx;
+  compute_sum_lemma4 bf.ghost_state.elements e' idx;
+  remove_element_same_count_lemma bf e e';
+  compute_sum_lemma4 new_bf.ghost_state.elements e' idx
+
+let remove_element_element_invalidation_prelim_lemma2 (bf:bloom_storage_u8) (e:element)
+  : Lemma (requires (
+    let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    element_count bf.ghost_state.elements e > 1 /\ count_invariant bf idx1 /\
+    count_invariant bf idx2
+  )) (ensures (let new_bf = remove_element bf e in
+    let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    U8.(slot_value new_bf idx1 >^ 0uy) /\ U8.(slot_value new_bf idx2 >^ 0uy)
+  )) = let new_bf = remove_element bf e in
+  let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+  remove_element_count_invariant_lemma bf e idx1;remove_element_count_invariant_lemma bf e idx2;
+  compute_sum_lemma4 new_bf.ghost_state.elements e idx1;
+  compute_sum_lemma4 new_bf.ghost_state.elements e idx2
+
+let remove_element_element_invalidation_lemma (bf:bloom_storage_u8) (e e':element)
+  : Lemma (requires (
+    element_invalidation bf e' /\ count_invariant bf (first_slot_index (hash e')) /\
+    count_invariant bf (second_slot_index (hash e'))
+  ))
+  (ensures (element_invalidation (remove_element bf e) e')) =
+  let new_bf = remove_element bf e in
+  if contains new_bf.ghost_state.elements e' then begin
+    if e <> e' then begin
+      let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
+      remove_element_element_invalidation_prelim_lemma1 bf e e' idx1;
+      remove_element_element_invalidation_prelim_lemma1 bf e e' idx2
+    end else if element_count bf.ghost_state.elements e > 1 then begin
+      remove_element_element_invalidation_prelim_lemma2 bf e
+    end else ()
+  end else ()

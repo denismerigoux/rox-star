@@ -29,7 +29,6 @@ let rec no_duplicates (#a:eqtype) (l:list (a & count)) : Tot bool (decreases l) 
 
 type count_list (a:eqtype) = (l:list (a & count){no_duplicates l})
 
-
 let same_elements (#a: eqtype) (l1 l2: count_list a) =
   (forall (e:a). contains l1 e <==> contains l2 e)
 
@@ -55,20 +54,6 @@ let rec incr_count #a l e =
       (e', old_count + 1)::tl
     else
       (e', old_count)::(incr_count tl e)
-
-let rec incr_count_lemma (#a:eqtype) (l:count_list a) (e:a{contains l e}) (e':a)
-  : Lemma (ensures (let l' = incr_count #a l e in
-    if e' = e
-    then element_count l' e' = element_count l e' + 1
-    else element_count l' e' = element_count l e'
-  )) = let l' = incr_count #a l e in match l with
-    | [] -> ()
-    | (e'', old_count)::tl ->
-      if e' = e then if e = e'' then ()
-      else incr_count_lemma #a tl e e'
-      else if e' = e'' then ()
-      else if e'' = e then ()
-      else incr_count_lemma #a tl e e'
 
 let same_elements_except (#a:eqtype) (l1 l2: count_list a) (e:a) =
    (forall (e':a{e' <> e}). contains l1 e' <==> contains l2 e')
@@ -110,17 +95,6 @@ let spec_insert_element bf e =
   else
     { bf with elements = (e,1)::bf.elements }
 
-let lemma_spec_insert_element
-  (bf:spec_bloom_storage_u8)
-  (e:element)
-  (e':element)
-  : Lemma (ensures (
-    let new_bf = spec_insert_element bf e in
-    if e = e'
-    then element_count new_bf.elements e' = element_count bf.elements e' + 1
-    else element_count new_bf.elements e' = element_count bf.elements e'
-  )) = if contains bf.elements e then incr_count_lemma bf.elements e e' else ()
-
 
 val spec_remove_element:
   bf:spec_bloom_storage_u8 ->
@@ -128,16 +102,3 @@ val spec_remove_element:
   Tot spec_bloom_storage_u8
 let spec_remove_element bf e =
     { bf with elements = decr_count bf.elements e }
-
-let lemma_spec_remove_element
-  (bf:spec_bloom_storage_u8)
-  (e:element)
-  : Lemma (ensures (
-    let new_bf = spec_remove_element bf e in
-    if element_count bf.elements e > 1 then
-      same_elements bf.elements new_bf.elements
-    else
-      same_elements_except bf.elements new_bf.elements e /\
-      not (contains new_bf.elements e)
-  )) =
-  ()
