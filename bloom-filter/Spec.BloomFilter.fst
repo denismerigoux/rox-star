@@ -29,6 +29,7 @@ let rec no_duplicates (#a:eqtype) (l:list (a & count)) : Tot bool (decreases l) 
 
 type count_list (a:eqtype) = (l:list (a & count){no_duplicates l})
 
+
 let same_elements (#a: eqtype) (l1 l2: count_list a) =
   (forall (e:a). contains l1 e <==> contains l2 e)
 
@@ -57,10 +58,9 @@ let rec incr_count #a l e =
 
 let rec incr_count_lemma (#a:eqtype) (l:count_list a) (e:a{contains l e}) (e':a)
   : Lemma (ensures (let l' = incr_count #a l e in
-    if e' = e then
-      element_count l' e' = element_count l e' + 1
-    else
-      element_count l' e' = element_count l e'
+    if e' = e
+    then element_count l' e' = element_count l e' + 1
+    else element_count l' e' = element_count l e'
   )) = let l' = incr_count #a l e in match l with
     | [] -> ()
     | (e'', old_count)::tl ->

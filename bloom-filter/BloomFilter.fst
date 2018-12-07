@@ -120,11 +120,11 @@ val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
   vec_all bf.counters (fun x -> x = 0uy)
 
-val insert_element: bf:bloom_storage_u8 -> element -> Tot bloom_storage_u8
+val insert_element: bf:bloom_storage_u8 -> e:element -> Tot bloom_storage_u8
 let insert_element bf e =
   let hash_val = hash e in
   (* *) let new_bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
-  insert_hash bf hash_val
+  insert_hash new_bf hash_val
 
 val remove_element:
   bf:bloom_storage_u8 ->
