@@ -8,6 +8,8 @@ module I64 = FStar.Int64
 module Isize = FStar.Int32
 module I32 = FStar.Int32
 
+#reset-options "--max_fuel 1"
+
 type u64 = U64.t
 let _MAX_U64 = FStar.UInt.max_int 64
 
@@ -47,6 +49,9 @@ let vec_fold #a #b f x v = List.Tot.Base.fold_left f x v
 val vec_index : #a:Type0 -> vector:vec a -> i:usize{Usize.(i <^ vec_length vector)} -> Tot a
 let vec_index #a v i = List.Tot.Base.index #a v (Usize.v i)
 
+val array_new: #a:Type0 -> len:usize -> v:a -> Tot (arr:array a len) (decreases (Usize.v len))
+let rec array_new #a len v = if len = 0ul then [] else v::(array_new (Usize.(len -^ 1ul)) v)
+
 val array_index :
   #a:Type0 ->
   #len:usize ->
@@ -54,6 +59,10 @@ val array_index :
   i:usize{Usize.(i <^ len)} ->
   Tot a
 let array_index #a #len arr i = List.Tot.Base.index #a arr (Usize.v i)
+
+let array_new_lemma (#a:eqtype) (len:usize) (v:a) (idx:usize{Usize.(idx <^ len)})
+  : Lemma (ensures (let arr = array_new len v in array_index arr idx = v))
+  = admit()
 
 val array_update :
   #a:eqtype ->
