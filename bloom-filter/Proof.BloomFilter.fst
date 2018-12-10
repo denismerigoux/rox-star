@@ -122,11 +122,20 @@ let count_invariant_property (bf:bloom_storage_u8) (idx:valid_index) : Tot bool 
 let count_invariant (bf:bloom_storage_u8) (idx:valid_index) =
     count_invariant_property bf idx
 
+#reset-options "--max_fuel 1 --z3rlimit 20"
+
+let rec count_sum_component_lemma (l:count_list element) (e':element) (idx:valid_index)
+  : Lemma (requires (
+    let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
+    idx = idx1 \/ idx = idx2
+  )) (ensures (compute_count_sum idx l >= element_count l e')) = match l with
+  | [] -> ()
+  | (e'', count)::tl -> count_sum_component_lemma tl e' idx
+
 (**** Insert element properties *)
 
 (***** Element invalidation *)
 
-#reset-options "--max_fuel 1 --z3rlimit 20"
 
 let insert_element_element_invalidation_lemma (bf:bloom_storage_u8) (e:element) (e':element)
   : Lemma (requires (element_invalidation bf e'))
@@ -135,7 +144,7 @@ let insert_element_element_invalidation_lemma (bf:bloom_storage_u8) (e:element) 
 
 (***** Count invariant *)
 
-let rec compute_count_sum_lemma1 (l:count_list element) (e:element) (idx:valid_index)
+let rec insert_element_compute_count_sum_lemma1 (l:count_list element) (e:element) (idx:valid_index)
   : Lemma (requires (
     let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
     idx1 <> idx2 /\ (idx = idx1 \/ idx = idx2)
@@ -144,7 +153,7 @@ let rec compute_count_sum_lemma1 (l:count_list element) (e:element) (idx:valid_i
     compute_count_sum idx new_bf.elements = compute_count_sum idx l + 1
   )) (decreases l) = match l with
   | [] -> ()
-  | (e', count)::tl -> compute_count_sum_lemma1 tl e idx
+  | (e', count)::tl -> insert_element_compute_count_sum_lemma1 tl e idx
 
 let insert_element_all_elements_counts_lemma1 (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (first_slot_index (hash e) <> second_slot_index (hash e)))
@@ -154,10 +163,10 @@ let insert_element_all_elements_counts_lemma1 (bf:bloom_storage_u8) (e:element)
        all_elements_counts new_bf idx2 = all_elements_counts bf idx2 + 1
     ))
   =  let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
-  compute_count_sum_lemma1 bf.ghost_state.elements e idx1;
-  compute_count_sum_lemma1 bf.ghost_state.elements e idx2
+  insert_element_compute_count_sum_lemma1 bf.ghost_state.elements e idx1;
+  insert_element_compute_count_sum_lemma1 bf.ghost_state.elements e idx2
 
-let rec compute_count_sum_lemma2 (l:count_list element) (e:element) (idx:valid_index)
+let rec insert_element_compute_count_sum_lemma2 (l:count_list element) (e:element) (idx:valid_index)
   : Lemma (requires (
     let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
     idx1 = idx2 /\ idx = idx1
@@ -166,7 +175,7 @@ let rec compute_count_sum_lemma2 (l:count_list element) (e:element) (idx:valid_i
     compute_count_sum idx new_bf.elements = compute_count_sum idx l + 2
   )) (decreases l) = match l with
   | [] -> ()
-  | (e', count)::tl -> compute_count_sum_lemma2 tl e idx
+  | (e', count)::tl -> insert_element_compute_count_sum_lemma2 tl e idx
 
 let insert_element_all_elements_counts_lemma2 (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (first_slot_index (hash e) = second_slot_index (hash e)))
@@ -174,9 +183,9 @@ let insert_element_all_elements_counts_lemma2 (bf:bloom_storage_u8) (e:element)
        let idx = first_slot_index (hash e) in
        all_elements_counts new_bf idx = all_elements_counts bf idx + 2
     ))
-  = compute_count_sum_lemma2 bf.ghost_state.elements e (first_slot_index (hash e))
+  = insert_element_compute_count_sum_lemma2 bf.ghost_state.elements e (first_slot_index (hash e))
 
-let rec compute_count_sum_lemma3 (l:count_list element) (e:element) (idx:valid_index)
+let rec insert_element_compute_count_sum_lemma3 (l:count_list element) (e:element) (idx:valid_index)
   : Lemma (requires (
     let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
     idx <> idx1 /\ idx <> idx2
@@ -185,7 +194,7 @@ let rec compute_count_sum_lemma3 (l:count_list element) (e:element) (idx:valid_i
     compute_count_sum idx new_bf.elements = compute_count_sum idx l
   )) (decreases l) = match l with
   | [] -> ()
-  | (e', count)::tl -> compute_count_sum_lemma3 tl e idx
+  | (e', count)::tl -> insert_element_compute_count_sum_lemma3 tl e idx
 
 let insert_element_all_elements_counts_lemma3 (bf:bloom_storage_u8) (e:element) (idx:valid_index)
   : Lemma (requires (
@@ -194,7 +203,7 @@ let insert_element_all_elements_counts_lemma3 (bf:bloom_storage_u8) (e:element) 
     )) (ensures (let new_bf = insert_element bf e in
       all_elements_counts new_bf idx = all_elements_counts bf idx
     ))
-  = compute_count_sum_lemma3 bf.ghost_state.elements e idx
+  = insert_element_compute_count_sum_lemma3 bf.ghost_state.elements e idx
 
 let insert_element_count_invariant_lemma_prelim
   (bf:bloom_storage_u8) (e:element) (idx:valid_index)
@@ -223,6 +232,54 @@ let insert_element_count_invariant_lemma (bf:bloom_storage_u8) (e:element) (idx:
 
 (***** Count invariant *)
 
+let max (x y : count) : Tot count = if x > y then x else y
+
+let rec remove_element_compute_count_sum_lemma2 (l:count_list element) (e:element) (idx:valid_index)
+  : Lemma (requires (
+    let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    idx1 = idx2 /\ idx = idx1 /\ (if contains l e then compute_count_sum idx l > 1 else true)
+  ))
+  (ensures (let new_bf = spec_remove_element ({elements = l}) e in
+    if contains l e then
+      compute_count_sum idx new_bf.elements = compute_count_sum idx l - 2
+    else true
+  )) (decreases l) = if not (contains l e ) then () else match l with
+  | [] -> ()
+  | (e', count)::tl -> if e' = e then () else begin
+      assert(contains tl e);
+      admit();
+      remove_element_compute_count_sum_lemma2 tl e idx
+    end
+
+let remove_element_all_elements_counts_lemma2 (bf:bloom_storage_u8) (e:element)
+  : Lemma (requires (first_slot_index (hash e) = second_slot_index (hash e)))
+    (ensures (let new_bf = insert_element bf e in
+       let idx = first_slot_index (hash e) in
+       all_elements_counts new_bf idx = all_elements_counts bf idx - 2
+    ))
+  = remove_element_compute_count_sum_lemma2 bf.ghost_state.elements e (first_slot_index (hash e));admit()
+
+let rec remove_element_compute_count_sum_lemma3 (l:count_list element) (e:element) (idx:valid_index)
+  : Lemma (requires (
+    let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    idx <> idx1 /\ idx <> idx2
+  ))
+  (ensures (let new_bf = spec_remove_element ({elements = l}) e in
+    compute_count_sum idx new_bf.elements = compute_count_sum idx l
+  )) (decreases l) = match l with
+  | [] -> ()
+  | (e', count)::tl -> remove_element_compute_count_sum_lemma3 tl e idx
+
+let remove_element_all_elements_counts_lemma3 (bf:bloom_storage_u8) (e:element) (idx:valid_index)
+  : Lemma (requires (
+      let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+      idx <> idx1 /\ idx <> idx2
+    )) (ensures (let new_bf = remove_element bf e in
+      all_elements_counts new_bf idx = all_elements_counts bf idx
+    ))
+  = remove_element_compute_count_sum_lemma3 bf.ghost_state.elements e idx
+
+
 let remove_element_count_invariant_lemma_prelim
   (bf:bloom_storage_u8) (e:element) (idx:valid_index)
   : Lemma (requires (not (is_max bf idx) /\ all_elements_counts bf idx = U8.v (slot_value bf idx)))
@@ -230,21 +287,30 @@ let remove_element_count_invariant_lemma_prelim
       not (is_max new_bf idx) ==> all_elements_counts new_bf idx = U8.v (slot_value new_bf idx)
     ))
   = insert_hash_lemma bf (hash e) idx;
-  admit()
+   let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+   let new_bf = remove_element bf e in
+   if idx1 <> idx2 then
+    if idx = idx1 || idx = idx2 then
+      if slot_is_empty bf idx then ()
+      else if is_max bf idx then ()
+      else admit()
+    else remove_element_all_elements_counts_lemma3 bf e idx
+  else if idx = idx1 then
+      if slot_is_empty bf idx1 then ()
+      else if is_almost_min bf idx1 then ()
+      else begin
+        assert(slot_value new_bf idx1 = U8.(slot_value bf idx1 -^ 2uy));
+        admit()
+      end
+  else remove_element_all_elements_counts_lemma3 bf e idx
 
 let remove_element_count_invariant_lemma (bf:bloom_storage_u8) (e:element) (idx:valid_index)
   : Lemma (requires (count_invariant bf idx)) (ensures (let new_bf = remove_element bf e in
-    count_invariant new_bf idx)) = admit()
+    count_invariant new_bf idx)) = if is_max bf idx then () else
+      remove_element_count_invariant_lemma_prelim bf e idx
 
 (***** Element invalidation *)
 
-let rec compute_sum_lemma4 (l:count_list element) (e':element) (idx:valid_index)
-  : Lemma (requires (
-    let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
-    idx = idx1 \/ idx = idx2
-  )) (ensures (compute_count_sum idx l >= element_count l e')) = match l with
-  | [] -> ()
-  | (e'', count)::tl -> compute_sum_lemma4 tl e' idx
 
 let rec remove_element_same_count_lemma (bf:bloom_storage_u8) (e e':element) : Lemma (requires (e <> e'))
   (ensures (let new_bf = remove_element bf e in
@@ -266,9 +332,9 @@ let remove_element_element_invalidation_prelim_lemma1
     let new_bf = remove_element bf e in U8.(slot_value new_bf idx >^ 0uy)
   )) =  let new_bf = remove_element bf e in
   remove_element_count_invariant_lemma bf e idx;
-  compute_sum_lemma4 bf.ghost_state.elements e' idx;
+  count_sum_component_lemma bf.ghost_state.elements e' idx;
   remove_element_same_count_lemma bf e e';
-  compute_sum_lemma4 new_bf.ghost_state.elements e' idx
+  count_sum_component_lemma new_bf.ghost_state.elements e' idx
 
 let remove_element_element_invalidation_prelim_lemma2 (bf:bloom_storage_u8) (e:element)
   : Lemma (requires (
@@ -281,8 +347,8 @@ let remove_element_element_invalidation_prelim_lemma2 (bf:bloom_storage_u8) (e:e
   )) = let new_bf = remove_element bf e in
   let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
   remove_element_count_invariant_lemma bf e idx1;remove_element_count_invariant_lemma bf e idx2;
-  compute_sum_lemma4 new_bf.ghost_state.elements e idx1;
-  compute_sum_lemma4 new_bf.ghost_state.elements e idx2
+  count_sum_component_lemma new_bf.ghost_state.elements e idx1;
+  count_sum_component_lemma new_bf.ghost_state.elements e idx2
 
 let remove_element_element_invalidation_lemma (bf:bloom_storage_u8) (e e':element)
   : Lemma (requires (
