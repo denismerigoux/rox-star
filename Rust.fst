@@ -10,135 +10,75 @@ module I32 = FStar.Int32
 
 #reset-options "--max_fuel 1"
 
+(*** Integers *)
+
 type u64 = U64.t
-let _MAX_U64 = FStar.UInt.max_int 64
+let _MAX_U64 = U64.uint_to_t (FStar.UInt.max_int 64)
 
 type usize = Usize.t
-let _MAX_USIZE = FStar.UInt.max_int 32
+let _MAX_USIZE = Usize.uint_to_t (FStar.UInt.max_int 32)
 
 type u32 = U32.t
-let _MAX_U32 = FStar.UInt.max_int 32
+let _MAX_U32 = U32.uint_to_t (FStar.UInt.max_int 32)
 
 type u8 = U8.t
-let _MAX_U8 = FStar.UInt.max_int 8
+let _MAX_U8 = U8.uint_to_t (FStar.UInt.max_int 8)
 
 type i64 = I64.t
-let _MAX_I64 = FStar.Int.max_int 64
-let _MIN_I64 = FStar.Int.min_int 64
+let _MAX_I64 = I64.int_to_t (FStar.Int.max_int 64)
+let _MIN_I64 = I64.int_to_t (FStar.Int.min_int 64)
 
 type isize = Isize.t
-let _MAX_ISIZE = FStar.Int.max_int 32
-let _MIN_ISIZE = FStar.Int.min_int 32
+let _MAX_ISIZE = Isize.int_to_t (FStar.Int.max_int 32)
+let _MIN_ISIZE = Isize.int_to_t (FStar.Int.min_int 32)
 
 type i32 = I32.t
-let _MAX_I32 = FStar.Int.max_int 32
-let _MIN_I32 = FStar.Int.min_int 32
+let _MAX_I32 = I32.int_to_t (FStar.Int.max_int 32)
+let _MIN_I32 = I32.int_to_t (FStar.Int.min_int 32)
 
-let vec (a : Type0) = l:(list a){List.Tot.Base.length l <= _MAX_USIZE}
-let array (a : Type0) (len: usize) = l:(list a){List.Tot.Base.length l = Usize.v len}
+open FStar.Seq
+
+(*** Vectors *)
+
+let vec (a : Type0) = l:(seq a){length l <= Usize.v _MAX_USIZE}
 
 val vec_length : #a:Type0 -> vec a -> Tot usize
-let vec_length #a v = Usize.uint_to_t (List.Tot.Base.length v)
+let vec_length #a v = Usize.uint_to_t (length v)
 
-val array_length : #a:Type0 -> #len:usize -> array a len -> Tot usize
-let array_length #a #len array = len
+let vec_idx (#a: Type0) (s:vec a) = idx:usize{Usize.(idx <^ vec_length s)}
 
-val vec_fold : #a:Type0 -> #b:Type0 -> (a -> b -> Tot a) -> a -> v:vec b -> Tot a (decreases v)
-let vec_fold #a #b f x v = List.Tot.Base.fold_left f x v
+val vec_index : #a:Type0 -> s:vec a -> i:vec_idx s -> Tot a
+let vec_index #a v i = index #a v (Usize.v i)
 
-val vec_index : #a:Type0 -> vector:vec a -> i:usize{Usize.(i <^ vec_length vector)} -> Tot a
-let vec_index #a v i = List.Tot.Base.index #a v (Usize.v i)
+val vec_push : #a:Type0 -> s:vec a{length s + 1 <= Usize.v _MAX_USIZE} -> new_val:a -> vec a
+let vec_push #a s new_val = s @| (create 1 new_val)
 
-val array_new: #a:Type0 -> len:usize -> v:a -> Tot (arr:array a len) (decreases (Usize.v len))
-let rec array_new #a len v = if len = 0ul then [] else v::(array_new (Usize.(len -^ 1ul)) v)
+let vec_push_lemma1 (#a:eqtype) (s:vec a{length s + 1 <= Usize.v _MAX_USIZE}) (new_val:a)
+  (idx:vec_idx s)
+  : Lemma (ensures (vec_index (vec_push s new_val) idx = vec_index s idx))
+  [SMTPat (vec_index (vec_push s new_val) idx)]  = ()
 
-val array_index :
-  #a:Type0 ->
-  #len:usize ->
-  arr:array a len ->
-  i:usize{Usize.(i <^ len)} ->
-  Tot a
-let array_index #a #len arr i = List.Tot.Base.index #a arr (Usize.v i)
+let vec_push_lemma2 (#a:eqtype) (s:vec a{length s + 1 <= Usize.v _MAX_USIZE}) (new_val:a)
+  : Lemma (ensures (vec_index (vec_push s new_val) (vec_length s)) = new_val)
+  [SMTPat (vec_index (vec_push s new_val) (vec_length s))] = ()
 
-let array_new_lemma (#a:eqtype) (len:usize) (v:a) (idx:usize{Usize.(idx <^ len)})
-  : Lemma (ensures (let arr = array_new len v in array_index arr idx = v))
-  = admit()
+let vec_push_lemma3 (#a:eqtype) (s:vec a{length s + 1 <= Usize.v _MAX_USIZE}) (new_val:a)
+  : Lemma (ensures (vec_length (vec_push s new_val) = Usize.(vec_length s +^ 1ul)))
+  [SMTPat (vec_length (vec_push s new_val))] = ()
 
-val array_update :
-  #a:eqtype ->
-  #len: usize ->
-  arr: array a len ->
-  i:usize{Usize.(i <^ len)} ->
-  new_value:a ->
-  Tot (new_arr:array a len) (decreases arr)
-let rec array_update #a #len arr i new_value =
-   if i = 0ul then
-     (new_value :: (List.Tot.Base.tl arr))
-   else begin
-   let tail = List.Tot.Base.tl arr in
-   let new_len = Usize.(len -^ 1ul) in
-   let new_i = Usize.(i -^ 1ul) in
-   let new_tail =
-     array_update #a #new_len tail new_i  new_value
-   in
-   let new_arr = (List.Tot.Base.hd arr)::new_tail in
-   new_arr
-   end
+val vec_update : #a:Type0 -> s:vec a -> idx:vec_idx s -> new_val:a -> Tot (vec a)
+let vec_update #a s idx new_val = upd #a s (Usize.v idx) new_val
 
-let rec lemma_array_update
-  (a:eqtype)
-  (len:usize)
-  (arr:array a len)
-  (i:usize{Usize.(i <^ len)})
-  (new_value: a) : Lemma
-  (ensures (
-    let new_arr = array_update #a #len arr i new_value in
-    array_index new_arr i = new_value /\
-    (forall (i':usize{Usize.(i' <^ len) /\ i' <> i}).
-      array_index new_arr i' = array_index arr i'
-    )
-  ))
-  (decreases arr)
-  [SMTPat (array_update #a #len arr i new_value)]
-  = if i = 0ul then () else
-   let tail = List.Tot.Base.tl arr in
-   let new_len = Usize.(len -^ 1ul) in
-   let new_i = Usize.(i -^ 1ul) in
-   let new_tail =
-     array_update #a #new_len tail new_i new_value
-   in
-   lemma_array_update a new_len tail new_i new_value;
-   let new_arr = (List.Tot.Base.hd arr)::new_tail in
-   assert (new_arr = array_update #a #len arr i new_value);
-   assert (array_index #a #len new_arr i = new_value);
-   let inner_lemma
-     (i':usize{Usize.(i' <^ len) /\ i' <> i}) :
-     Lemma (ensures
-       (array_index #a #len new_arr i' = array_index #a #len arr i')
-     ) =
-   begin
-    if i' = 0ul then
-      ()
-    else begin
-      let new_i' = Usize.(i' -^ 1ul) in
-      assert(array_index #a #len new_arr i' = array_index #a #new_len new_tail new_i');
-      ()
-    end
-  end in
-  Classical.forall_intro inner_lemma;
-  ()
+let vec_update_lemma1 (#a:eqtype) (s:vec a) (idx idx':vec_idx s) (new_val:a)
+  : Lemma (requires (idx <> idx'))
+    (ensures (vec_index (vec_update s idx new_val) idx' = vec_index s idx'))
+  [SMTPat (vec_index (vec_update s idx new_val) idx')]
+  = ()
 
-let lemma_mapi (a: Type) (b: Type) (v: list a) (f: int -> a -> b)
-  : Lemma (ensures (List.Tot.Base.length (List.Tot.Base.mapi f v) = List.Tot.Base.length v))
-  = admit()
-
-val enumerate : #a:eqtype -> v:vec a ->
-  Tot (vec (a & i:int))
-let enumerate #a v =
-  let f = (fun i e -> (e,i)) in
-  let new_v = List.Tot.Base.mapi f v in
-  lemma_mapi a (a & int) v f;
-  new_v
+let vec_update_lemma2 (#a:eqtype) (s:vec a) (idx:vec_idx s) (new_val:a)
+  : Lemma (ensures (vec_index (vec_update s idx new_val) idx = new_val))
+  [SMTPat (vec_index (vec_update s idx new_val) idx)]
+  = ()
 
 private val repeat_left:
     lo:nat
@@ -150,6 +90,7 @@ private val repeat_left:
 private let rec repeat_left lo hi a f acc =
   if lo = hi then acc
   else repeat_left (lo + 1) hi a f (f lo acc)
+
 
 val vec_foldl :
   #b:Type ->
@@ -163,10 +104,89 @@ let vec_foldl #b vector a x f =
   if len = 0ul then x else
     repeat_left 0 (Usize.v len)
     (fun (i:nat{0 <= i /\ i <= Usize.v len}) -> a (Usize.uint_to_t i))
-    (fun i acc -> f (Usize.uint_to_t i) (List.Tot.Base.index vector i) acc)
+    (fun i acc -> f (Usize.uint_to_t i) (vec_index vector (Usize.uint_to_t i)) acc)
     x
 
 val vec_all : #b:Type -> vector:vec b -> f:(b -> bool) -> Tot bool (decreases vector)
-let rec vec_all #b vector f = match vector with
-  | [] -> true
-  | hd::tl -> if f hd then vec_all tl f else false
+let rec vec_all #b vector f = let len = vec_length vector in
+    repeat_left 0 (Usize.v len)
+    (fun _ -> bool)
+    (fun i acc -> acc && f (vec_index vector (Usize.uint_to_t i)))
+    true
+
+
+(*** Arrays *)
+
+let array (a : Type0) (len: usize) = l:(seq a){length l = Usize.v len}
+
+val array_new: #a:Type0 -> len:usize -> v:a -> Tot (arr:array a len)
+let array_new #a len v = create #a (Usize.v len) v
+
+val array_length : #a:Type0 -> #len:usize -> array a len -> Tot usize
+let array_length #a #len array = len
+
+let arr_idx (#a:Type0) (#len:usize) (arr:array a len) = idx:usize{Usize.(idx <^ len)}
+
+val array_index : #a:Type0 -> #len:usize -> arr:array a len -> i:arr_idx arr -> Tot a
+let array_index #a #len arr i = index #a arr (Usize.v i)
+
+val array_update : #a:eqtype -> #len:usize -> arr:array a len -> i:arr_idx arr -> new_value:a ->
+  Tot (new_arr:array a len)
+let array_update #a #len arr i new_value = vec_update #a arr i new_value
+
+let array_update_lemma1 (#a:eqtype) (#len:usize) (s:array a len) (idx idx':arr_idx s) (new_val:a)
+  : Lemma (requires (idx <> idx'))
+    (ensures (array_index (array_update s idx new_val) idx' = array_index s idx'))
+  [SMTPat (array_index (array_update s idx new_val) idx')]
+  = ()
+
+let array_update_lemma2 (#a:eqtype) (#len:usize) (s:array a len) (idx:arr_idx s) (new_val:a)
+  : Lemma (ensures (array_index (array_update s idx new_val) idx = new_val))
+  [SMTPat (array_index (array_update s idx new_val) idx)]
+  = ()
+
+(*** Iterators *)
+
+let iter (a: Type0) = vec a
+
+val array_to_iter : #a:eqtype -> #len:usize -> array a len -> iter a
+let array_to_iter #a #len arr = arr
+
+val vec_to_iter : #a:eqtype -> vec a -> iter a
+let vec_to_iter #a s = s
+
+val collect : #a:eqtype -> iter a -> vec a
+let collect #a it = it
+
+private val enumerate_aux :
+  #a:eqtype ->
+  tot:nat{tot <= Usize.v _MAX_USIZE} ->
+  s:(iter a){length s <= tot} ->
+  Tot (r:(iter (a & usize)){length r = length s})
+  (decreases (length s))
+private let rec enumerate_aux #a tot s =
+  let len = length s in
+  if len = 0 then empty else
+    let hd = index s 0 in let tl = slice s 1 len in
+    (create 1 (hd, Usize.uint_to_t (tot - len))) @| (enumerate_aux tot tl)
+
+private let rec enumerate_aux_lemma
+  (#a:eqtype)
+  (tot:nat{tot <= Usize.v _MAX_USIZE})
+  (s:(vec a){length s <= tot})
+  (i:usize{Usize.v i < tot})
+  : Lemma (ensures (
+    let r = enumerate_aux tot s in
+    if Usize.v i < tot - length s then true else
+      let rel_i = Usize.uint_to_t (Usize.v i - tot + length s) in
+      vec_index r rel_i = (vec_index s rel_i, i)
+  )) (decreases (length s)) =
+  let len = length s in if len = 0 then () else
+  let tl = slice s 1 len in enumerate_aux_lemma #a tot tl i
+
+val enumerate: #a:eqtype -> vec a -> Tot (vec (a & usize))
+let enumerate #a s = enumerate_aux (length s) s
+
+let enumerate_lemma1 (#a:eqtype) (s:iter a) (idx:vec_idx s)
+  : Lemma (ensures (vec_index (collect (enumerate s)) idx = (vec_index s idx, idx)))
+  [SMTPat (vec_index (collect (enumerate s)) idx)] = enumerate_aux_lemma (length s) s idx
