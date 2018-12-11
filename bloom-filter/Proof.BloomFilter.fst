@@ -17,10 +17,10 @@ open BloomFilter
 #reset-options "--max_fuel 0"
 
 let is_max (bf:bloom_storage_u8) (idx:valid_index) : Tot bool =
- slot_value bf idx = U8.uint_to_t _MAX_U8
+ slot_value bf idx = _MAX_U8
 
 let is_almost_max (bf:bloom_storage_u8) (idx:valid_index) : Tot bool =
-  slot_value bf idx = U8.(uint_to_t _MAX_U8 -^ 1uy)
+  slot_value bf idx = U8.(_MAX_U8 -^ 1uy)
 
 let adjust_slot_lemma (bf:bloom_storage_u8) (idx:valid_index)
   (increment:bool) (idx':valid_index): Lemma (ensures (
@@ -144,7 +144,7 @@ let new_bf_element_invalidation_lemma (e':element)
 
 let new_bf_count_invariant_lemma (idx:valid_index)
   : Lemma (ensures (count_invariant_property (new_bf ()) idx))
-  = array_new_lemma _ARRAY_SIZE 0uy idx
+  = ()
 
 (**** Insert element properties *)
 

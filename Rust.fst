@@ -45,6 +45,9 @@ let vec (a : Type0) = l:(seq a){length l <= Usize.v _MAX_USIZE}
 val vec_length : #a:Type0 -> vec a -> Tot usize
 let vec_length #a v = Usize.uint_to_t (length v)
 
+val vec_empty : #a:Type0 -> unit -> Tot (r:(vec a){vec_length r = 0ul})
+let vec_empty #a () = empty
+
 let vec_idx (#a: Type0) (s:vec a) = idx:usize{Usize.(idx <^ vec_length s)}
 
 val vec_index : #a:Type0 -> s:vec a -> i:vec_idx s -> Tot a
