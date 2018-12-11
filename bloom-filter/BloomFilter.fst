@@ -11,38 +11,32 @@ module I32 = FStar.Int32
 open Rust
 open Spec.BloomFilter
 
-let _BLOOM_HASH_MASK: u32 = 0x00fffffful
+#reset-options "--max_fuel 0"
 
 let _KEY_SIZE: usize = 12ul
 
-let _ARRAY_SIZE: v:usize{U32.v v = 4096} =
-  let value = Usize.(1ul <<^ _KEY_SIZE) in
-  assert_norm (value = 4096ul);
-  value
+let _ARRAY_SIZE: usize = Usize.(1ul <<^ _KEY_SIZE)
 
-let _KEY_MASK: (v:u32{U32.v v = 0xfff}) =
-  let value = Usize.((1ul <<^ _KEY_SIZE) -%^ 1ul) in
-  assert_norm (value = 0xffful);
-  value
+let _KEY_MASK: u32 = Usize.((1ul <<^ _KEY_SIZE) -%^ 1ul)
 
 type bloom_storage_u8 = {
   counters: array u8 _ARRAY_SIZE;
   ghost_state: spec_bloom_storage_u8
 }
 
-
 let valid_index = i:usize{Usize.(i <^ _ARRAY_SIZE)}
 
 val hash1: u32 -> valid_index
 let hash1 hash =
   let and_value = U32.(hash &^ _KEY_MASK) in
-  admit();//TODO: find how to make F* understand
+  (* *) FStar.UInt.logand_mask (U32.v hash) 12;
   and_value
 
 val hash2: u32 -> valid_index
 let hash2 hash =
-  let and_value = U32.((hash >>^ _KEY_SIZE) &^ _KEY_MASK) in
-  admit();
+  let middle_value = U32.(hash >>^ _KEY_SIZE) in
+  let and_value = U32.(middle_value &^ _KEY_MASK) in
+  (* *) FStar.UInt.logand_mask (U32.v middle_value) 12;
   and_value
 
 let first_slot_index (hash: u32) : valid_index =
@@ -120,8 +114,15 @@ val is_zeroed: bf:bloom_storage_u8 -> Tot bool
 let is_zeroed bf =
   vec_all bf.counters (fun x -> x = 0uy)
 
+#reset-options "--max_fuel 1"
+
 val new_bf : unit -> Tot bloom_storage_u8
-let new_bf () = { counters = array_new _ARRAY_SIZE 0uy ; ghost_state = { elements = [] } }
+let new_bf () = {
+  counters = array_new _ARRAY_SIZE 0uy ;
+  (* *) ghost_state = { elements = [] }
+}
+
+#reset-options "--max_fuel 0"
 
 val insert_element: bf:bloom_storage_u8 -> e:element -> Tot bloom_storage_u8
 let insert_element bf e =
