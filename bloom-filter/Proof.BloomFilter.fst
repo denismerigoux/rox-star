@@ -150,11 +150,14 @@ let new_bf_count_invariant_lemma (idx:valid_index)
 
 (***** Element invalidation *)
 
-
 let insert_element_element_invalidation_lemma (bf:bloom_storage_u8) (e:element) (e':element)
   : Lemma (requires (element_invalidation bf e'))
     (ensures (element_invalidation (insert_element bf e) e'))
-  = ()
+  = let new_bf = insert_element bf e in
+  if contains new_bf.ghost_state.elements e' then
+       if e <> e' then () else ()
+  else ()
+
 
 (***** Count invariant *)
 

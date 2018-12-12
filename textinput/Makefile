@@ -3,7 +3,7 @@
 FSTAR=$(FSTAR_HOME)/bin/fstar.exe
 
 %.fst.hints: %.fst
-	$(FSTAR) $^ --use_hints --record_hints --include ../
+	$(FSTAR) $^ --record_hints --use_hints  --include ../
 
 
-verify: Proof.BloomFilter.fst.hints
+verify: TextInput.fst.hints

@@ -242,6 +242,8 @@ let adjust_vertical input adjust select =
     input
   end
 
+#reset-options "--z3rlimit 50"
+
 val perform_horizontal_adjustment :
   input:selection ->
   adjust:isize{
@@ -308,8 +310,6 @@ let rec perform_horizontal_adjustment input adjust select =
     }
   end in
   update_selection_direction input
-
-#reset-options "--max_fuel 5"
 
 val adjust_horizontal :
   input:selection ->
