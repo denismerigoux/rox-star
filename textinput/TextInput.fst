@@ -1,8 +1,15 @@
 module TextInput
 
 open Rust
-module U = FStar.UInt32
-module I = FStar.Int32
+module U64 = FStar.UInt64
+module Usize = FStar.UInt32
+module U32 = FStar.UInt32
+module U8 = FStar.UInt8
+module I64 = FStar.Int64
+module Isize = FStar.Int32
+module I32 = FStar.Int32
+
+#reset-options "--max_fuel 0"
 
 type selection_status =
   | Selected
@@ -17,16 +24,10 @@ type direction =
   | DForward
   | DBackward
 
-let max_usize = UInt.max_int U.n
-let max_isize = Int.max_int I.n
+type small_usize = x:usize{Usize.v x + 1 <= Isize.v _MAX_ISIZE }
 
-let u_to_i (x: usize{U.v x <= max_isize}) = I.int_to_t (U.v x)
-let i_to_u (x: isize{I.v x >= 0}) = U.uint_to_t (I.v x)
-let max_int (x y : isize) = I.(if x >=^ y then x else y)
-let min_uint (x y : usize) = U.(if x <=^ y then x else y)
-let abs_int (x: isize) : nat = I.(if x >=^ 0l then v x else - v x)
-
-type small_usize = x:usize{ U.v x + 1 <= max_isize }
+let abs_isize (x: isize{Isize.(x >^ _MIN_ISIZE)}) : usize =
+  Isize.(if x >=^ 0l then isize_to_usize_safe x else isize_to_usize_safe (neg_isize x))
 
 type text_point = {
   line: small_usize;
@@ -34,8 +35,8 @@ type text_point = {
 }
 val point_lte : text_point -> text_point -> Tot bool
 let point_lte p1 p2 =
-  U.(p1.line <^ p2.line) ||
-  U.((p1.line =^ p2.line && p1.index <=^ p2.index))
+  Usize.(p1.line <^ p2.line) ||
+  Usize.((p1.line = p2.line && p1.index <=^ p2.index))
 
 type selection_state = {
   start: text_point;
@@ -43,21 +44,16 @@ type selection_state = {
   direction: selection_direction
 }
 
-type line_string = s:string{FStar.String.strlen s + 1 <= Int.max_int 32}
+type dom_string = s:rust_string{Usize.v (string_length s) + 1 < Isize.v _MAX_ISIZE}
 
+let dom_string_len (s:dom_string) : Tot usize = string_length s
 
-let text_total_chars (text:vec line_string) =
-  vec_foldl text (fun _ -> nat) 0
-    (fun _ (line : line_string) acc -> acc + 1 + FStar.String.strlen line)
+let number_of_lines (t:vec dom_string) : Tot usize = vec_length t
 
-type text = t:vec line_string{U.v (vec_length t) + 1 <= max_isize && text_total_chars t <= max_isize}
+type text = t:vec dom_string{Usize.v (number_of_lines t) + 1 <= Isize.v _MAX_ISIZE}
 
-val text_length : text -> Tot usize
-let text_length text = vec_length text
-
-
-val line_length : text:text -> i:usize{U.(i <^ (text_length text))} -> Tot usize
-let line_length t i = U.uint_to_t (FStar.String.strlen (vec_index t i))
+val line_len : text:text -> i:vec_idx text -> Tot usize
+let line_len t i =  dom_string_len (vec_index t i)
 
 type text_input = {
   lines: text;
@@ -71,8 +67,8 @@ type text_input = {
 let assert_edit_order (input: text_input) : Tot bool =
   begin match input.selection_origin with
     | Some(start) ->
-      U.(start.line <^ (text_length input.lines)) &&
-      U.(start.index <=^ (line_length input.lines start.line)) &&
+      Usize.(start.line <^ (number_of_lines input.lines)) &&
+      Usize.(start.index <=^ (line_len input.lines start.line)) &&
       begin match input.selection_direction with
 	| Unspecified | Forward -> point_lte start input.edit_point
 	| Backward -> point_lte input.edit_point start
@@ -83,20 +79,20 @@ let assert_edit_order (input: text_input) : Tot bool =
 val assert_ok_selection : text_input -> Tot bool
 let assert_ok_selection input =
   assert_edit_order input &&
-  U.(input.edit_point.line <^ (text_length input.lines)) &&
-  U.(input.edit_point.index <=^ (line_length input.lines input.edit_point.line))
+  Usize.(input.edit_point.line <^ (number_of_lines input.lines)) &&
+  Usize.(input.edit_point.index <=^ (line_len input.lines input.edit_point.line))
 
 type selection = input:text_input{assert_ok_selection input}
 
 type valid_text_point (input:selection) = p:text_point{
-  U.(p.line <^ text_length input.lines) &&
-  U.(p.index <=^ (line_length input.lines p.line))
+  Usize.(p.line <^ number_of_lines input.lines) &&
+  Usize.(p.index <=^ (line_len input.lines p.line))
 }
 
 val current_line_length :
-  input:text_input{U.v input.edit_point.line < U.v (text_length input.lines)} ->
+  input:text_input{Usize.(input.edit_point.line <^ number_of_lines input.lines)} ->
   usize
-let current_line_length input = line_length input.lines input.edit_point.line
+let current_line_length input = line_len input.lines input.edit_point.line
 
 val clear_selection : selection -> Tot selection
 let clear_selection input =
@@ -107,10 +103,10 @@ let clear_selection input =
 
 val select_all : selection -> Tot selection
 let select_all input =
-  let last_line = U.(text_length input.lines -^ 1ul) in
+  let last_line = Usize.(number_of_lines input.lines -^ 1ul) in
   { input with
     selection_origin = Some({ line = 0ul; index = 0ul });
-    edit_point = { line = last_line; index = line_length input.lines last_line};
+    edit_point = { line = last_line; index = line_len input.lines last_line};
     selection_direction = Forward;
   }
 
@@ -155,8 +151,8 @@ let adjust_horizontal_to_limit input direction select =
   else match direction with
     | DBackward -> { input with edit_point = { line = 0ul; index = 0ul; } }
     | DForward -> { input with edit_point = {
-        line = U.((text_length input.lines) -^ 1ul);
-	index = line_length input.lines U.((text_length input.lines) -^ 1ul)
+        line = Usize.((number_of_lines input.lines) -^ 1ul);
+	index = line_len input.lines Usize.((number_of_lines input.lines) -^ 1ul)
       } }
 
 val clear_selection_to_limit : selection -> direction -> selection
@@ -173,11 +169,11 @@ let update_selection_direction input =
      | Some(origin) -> if point_lte input.edit_point origin then Backward else Forward
   }
 
-#reset-options "--initial_fuel 0 --max_fuel 0 --z3rlimit 100"
+#reset-options "--z3rlimit 20"
 
 val adjust_vertical :
   input:selection ->
-  adjust:isize{(I.v adjust) + (U.v input.edit_point.line) + 1 <= max_isize} ->
+  adjust:isize{(Isize.v adjust) + (Usize.v input.edit_point.line) + 1 <= Isize.v _MAX_ISIZE} ->
   selection_status ->
   selection
 let adjust_vertical input adjust select =
@@ -186,9 +182,9 @@ let adjust_vertical input adjust select =
     | (Selected, Some _) -> input
     | (NotSelected, _) -> clear_selection input
   in
-  assert (U.(input.edit_point.line <^ text_length input.lines));
-  let target_line : isize = I.((u_to_i input.edit_point.line) +^ adjust) in
-  if I.(target_line <^ 0l) then
+  assert (Usize.(input.edit_point.line <^ number_of_lines input.lines));
+  let target_line : isize = Isize.((usize_to_isize_safe input.edit_point.line) +^ adjust) in
+  if Isize.(target_line <^ 0l) then
     let zero_point =  { line = 0ul; index = 0ul } in
     let input = { input with edit_point = zero_point } in
     (* BEGIN ADDED CODE *)
@@ -200,9 +196,9 @@ let adjust_vertical input adjust select =
     in
     (* END ADDED CODE*)
     input
-  else if U.((i_to_u target_line) >=^ text_length input.lines) then begin
+  else if Usize.((isize_to_usize_safe target_line) >=^ number_of_lines input.lines) then begin
     let input = { input with edit_point = { input.edit_point with
-      line = U.((text_length input.lines) -^ 1ul);
+      line = Usize.((number_of_lines input.lines) -^ 1ul);
     } } in
     let input = { input with edit_point = { input.edit_point with
       index = current_line_length input;
@@ -219,14 +215,14 @@ let adjust_vertical input adjust select =
     (* END ADDED CODE *)
     input
   end else begin
-    let target_line_length =  line_length input.lines (i_to_u target_line) in
-    let col = if U.(input.edit_point.index <^ target_line_length)
+    let target_line_length =  line_len input.lines (isize_to_usize_safe target_line) in
+    let col = if Usize.(input.edit_point.index <^ target_line_length)
       then input.edit_point.index
       else target_line_length
     in
     let input =
     { input with edit_point = {
-      line = i_to_u target_line;
+      line = isize_to_usize_safe target_line;
       index = col
     } } in
     (* BEGIN ADDED CODE *)
@@ -248,15 +244,22 @@ let adjust_vertical input adjust select =
 
 val perform_horizontal_adjustment :
   input:selection ->
-  adjust:isize{(I.v adjust) + (U.v input.edit_point.index) + 1 <= max_isize} ->
+  adjust:isize{
+    Isize.(adjust >^ _MIN_ISIZE)
+  } ->
   selection_status ->
   Tot selection
-  (decreases (abs_int adjust))
+  (decreases (Usize.v (abs_isize adjust)))
 let rec perform_horizontal_adjustment input adjust select =
-  let input = if I.(adjust <^ 0l) then begin
-    let adjust_abs = U.uint_to_t (- (I.v adjust)) in
+  let input = if Isize.(adjust <^ 0l) then begin
+    (* BEGIN ADDED CODE *)
+    (* F* does not understand without the assertion *)
+    let neg_val = neg_isize adjust in
+    assert(Isize.(neg_val >=^ 0l));
+    (* END ADDED CODE *)
+    let adjust_abs = isize_to_usize_safe neg_val in
     let remaining = input.edit_point.index in
-    if U.(adjust_abs >^ remaining) && U.(input.edit_point.line >^ 0ul) then
+    if Usize.(adjust_abs >^ remaining) && Usize.(input.edit_point.line >^ 0ul) then
       let input = adjust_vertical input (-1l) select in
       let input =
 	{ input with edit_point = { input.edit_point with index = current_line_length input }}
@@ -265,20 +268,25 @@ let rec perform_horizontal_adjustment input adjust select =
       (* BEGIN CHANGED CODE *)
       (* Could not prove mutually recursive function termination so inlined other function here *)
       //adjust_horizontal input I.(adjust +^ ((u_to_i remaining) +^ 1l)) select
-      let adjust = I.(adjust +^ ((u_to_i remaining) +^ 1l)) in
-      let direction = if I.(adjust >=^ 0l) then DForward else DBackward in
+      let new_adjust = Isize.(adjust +^ ((usize_to_isize_safe remaining) +^ 1l)) in
+      let direction = if Isize.(adjust >=^ 0l) then DForward else DBackward in
       let (input, done) = adjust_selection_for_horizontal_change input direction select in
-      if done then input else perform_horizontal_adjustment input adjust select
+      (* Again F* does not seem to understand without the assertions... *)
+      assert(Isize.(adjust <^ new_adjust));
+      assert(Isize.(new_adjust <=^ 0l));
+      assert(Usize.(abs_isize new_adjust <^ abs_isize adjust));
+      if done then input else perform_horizontal_adjustment input new_adjust select
       (* END CHANGED CODE*)
     else
       { input with edit_point = { input.edit_point with index =
-        i_to_u (max_int 0l I.((u_to_i input.edit_point.index) +^ adjust))
+        isize_to_usize_safe
+	  (max_isize 0l Isize.((usize_to_isize_safe input.edit_point.index) +^ adjust))
       } }
   end else begin
-    let remaining = U.((current_line_length input) -^ input.edit_point.index) in
+    let remaining = Usize.((current_line_length input) -^ input.edit_point.index) in
     if
-      U.((i_to_u adjust) >^ remaining) &&
-      U.(text_length input.lines >^ input.edit_point.line +^ 1ul)
+      Usize.((isize_to_usize_safe adjust) >^ remaining) &&
+      Usize.(number_of_lines input.lines >^ input.edit_point.line +^ 1ul)
     then
       let input = adjust_vertical input 1l select in
       let input =
@@ -287,27 +295,30 @@ let rec perform_horizontal_adjustment input adjust select =
       (* BEGIN CHANGED CODE *)
       (* Could not prove mutually recursive function termination so inlined other function here *)
       //adjust_horizontal input I.(adjust -^ (u_to_i remaining) -^ 1l) select
-      let adjust = I.(adjust -^ (u_to_i remaining) -^ 1l) in
-      let direction = if I.(adjust >=^ 0l) then DForward else DBackward in
+      let adjust = Isize.(adjust -^ (usize_to_isize_safe remaining) -^ 1l) in
+      let direction = if Isize.(adjust >=^ 0l) then DForward else DBackward in
       let (input, done) = adjust_selection_for_horizontal_change input direction select in
       if done then input else perform_horizontal_adjustment input adjust select
       (* END CHANGED CODE*)
     else { input with
       edit_point = { input.edit_point with
-	index = min_uint (current_line_length input) U.(input.edit_point.index +^ (i_to_u adjust))
+	index = min_usize (current_line_length input)
+	  Usize.(input.edit_point.index +^ (isize_to_usize_safe adjust))
       }
     }
   end in
   update_selection_direction input
 
+#reset-options "--max_fuel 5"
+
 val adjust_horizontal :
   input:selection ->
-  adjust:isize{(I.v adjust) + (U.v input.edit_point.index) + 1 <= max_isize} ->
+  adjust:isize{Isize.(adjust >^ _MIN_ISIZE)} ->
   selection_status ->
   Tot selection
-  (decreases (abs_int adjust))
+  (decreases (abs_isize adjust))
 let adjust_horizontal input adjust select =
-  let direction = if I.(adjust >=^ 0l) then DForward else DBackward in
+  let direction = if Isize.(adjust >=^ 0l) then DForward else DBackward in
   let (input, done) = adjust_selection_for_horizontal_change input direction select in
   if done then input else perform_horizontal_adjustment input adjust select
 
@@ -318,211 +329,8 @@ let adjust_horizontal_to_line_end input dir status =
     let shift : isize =
       let current_line = vec_index input.lines input.edit_point.line in
       match dir with
-	| DBackward -> I.(0l -^ (u_to_i input.edit_point.index))
-	| DForward -> u_to_i U.((line_length input.lines input.edit_point.line) -^ input.edit_point.index)
+	| DBackward -> Isize.(0l -^ (usize_to_isize_safe input.edit_point.index))
+	| DForward -> usize_to_isize_safe
+	  Usize.((line_len input.lines input.edit_point.line) -^ input.edit_point.index)
     in
     perform_horizontal_adjustment input shift status
-
-type offset (t:text) = n:small_usize{U.v n <= text_total_chars t}
-
-(*
-val offset_to_text_point :
-  input:selection ->
-  abs_point:offset input.lines ->
-  Tot (valid_text_point input)
-let offset_to_text_point input abs_point =
-  let len = text_length input.lines in
-  let last_line_idx = U.(len -^ 1ul) in
-  let (| line, index, _, _ |) = List.Tot.Base.fold_left (fun
-    ((| line, index, i, acc|) :
-      ( (line:small_usize{U.(line <^ len)})
-	& small_usize
-	& (i:nat{U.v line <= i && i < U.v len})
-	& (acc:small_usize)
-      ))
-    (text_line : line_string) ->
-    assert U.(line <^ text_length input.lines);
-    if i <> U.v last_line_idx then
-      let line_end = U.uint_to_t (FStar.String.strlen text_line) in
-      let new_acc = U.(acc +^ line_end +^ 1ul) in
-      assume (U.v new_acc + 1 <= max_isize);
-      if U.(abs_point >=^ new_acc) && U.(index >^ line_end) then begin
-	(| U.(line +^ 1ul), U.(index -^ (line_end +^ 1ul)), i + 1, new_acc |)
-      end else
-	(| line, index, i + 1, new_acc |)
-    else (| line, index, i, acc |)
-  ) (| 0ul, abs_point, 0, 0ul |) (input.lines)
-  in
-  admit();
-  { line; index }
-*)
-
-(* BEGIN CHANGED CODE *)
-type loop_acc (input:selection) (i:usize{U.(i <=^ text_length input.lines)}) =
-  begin let total_lines = text_length input.lines in
-  dtuple4
-    (small_usize)
-    (fun _ -> line:small_usize{U.(line <^ total_lines) && U.(line <=^ i)})
-    (fun _ line -> index:small_usize{U.(index <=^ line_length input.lines line)})
-    (fun remainder line index -> stopped:bool{
-      if stopped then
-	remainder = 0ul
-      else
-        index = 0ul
-    })
-  end
-
-val offset_to_text_point_loop:
-  input:selection ->
-  i:usize{U.(i <^ text_length input.lines)} ->
-  text_line:line_string ->
-  loop_acc input i ->
-  Tot (loop_acc input U.(i +^ 1ul))
-let offset_to_text_point_loop input i _ (| remainder, line, index, stopped |) =
-  let line_length = line_length input.lines i in
-  if stopped then (| remainder, line, index, stopped |) else
-  if U.(remainder >^ line_length) then
-    (| U.(remainder -^ line_length -^ 1ul), i,  0ul, false |)
-  else begin
-    (| 0ul, i, remainder, true |)
-  end
-
-val offset_to_text_point_alt :
-  input:selection ->
-  abs_point:offset input.lines ->
-  Tot (res:valid_text_point input)
- let offset_to_text_point_alt input abs_point =
-  let total_length = U.uint_to_t (text_total_chars input.lines) in
-  let total_lines = text_length input.lines in
-  let acc : loop_acc input 0ul = (| abs_point, 0ul, 0ul, false |) in
-  let (| remainder, line, index, stopped |) : loop_acc input U.(total_lines -^ 1ul) =
-    vec_foldl input.lines (loop_acc input) acc (offset_to_text_point_loop input)
-  in
-  if stopped then begin
-    { line; index }
-  end else
-    { line = U.(total_lines -^ 1ul); index = line_length input.lines U.(total_lines -^ 1ul) }
-(* END CHANGED CODE *)
-
-#reset-options "--max_fuel 1 --z3rlimit 100"
-
-let monotonicity_loop_invariant
-  (input:selection)
-  (i:usize{U.(i <^ text_length input.lines)})
-  (acc_x: loop_acc input i)
-  (acc_y: loop_acc input i) =
-  let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
-  let (| remainder_y, line_y, index_y, stopped_y |) = acc_y in
-  U.(remainder_x <=^ remainder_y) &&
-  begin if not stopped_x && not stopped_y then
-    line_x = line_y && U.(index_x <=^ index_y)
-  else if stopped_x && not stopped_y then
-     U.(line_x <=^ line_y) && index_y = 0ul
-  else if stopped_x && stopped_y then
-      U.(line_x <=^ line_y) &&
-      begin if line_x = line_y then
-	U.(index_x <=^ index_y)
-      else begin
-	assert U.(line_x <^ line_y);
-	true
-      end
-      end
-  else
-    false
-  end
-
-
-let offset_to_text_point_loop_monotonicity
-  (input:selection)
-  (i: usize{U.(i <^ text_length input.lines)})
-   (acc_x: loop_acc input i)
-  (acc_y: loop_acc input i)
-  (text_line:line_string)
-  : Lemma
-  (requires (monotonicity_loop_invariant input i acc_x acc_y))
-  (ensures (
-      if i = U.(text_length input.lines -^ 1ul) then true else
-      let new_acc_x =
-	offset_to_text_point_loop input i text_line acc_x
-      in
-      let new_acc_y =
-	offset_to_text_point_loop input i text_line acc_y
-      in
-      monotonicity_loop_invariant input U.(i +^ 1ul) new_acc_x new_acc_y
-  )) =
-  let (| remainder_x, line_x, index_x, stopped_x |) = acc_x in
-  let (| remainder_y, line_y, index_y, stopped_y |) = acc_y in
-  let  (| new_remainder_x, new_line_x, new_index_x, new_stopped_x |) =
-    offset_to_text_point_loop input i text_line acc_x
-  in
-  let  (| new_remainder_y, new_line_y, new_index_y, new_stopped_y |) =
-    offset_to_text_point_loop input i text_line acc_y
-  in
-  assert(if not stopped_x && not stopped_y && new_stopped_x && new_stopped_y then
-    U.(new_index_x <=^ new_index_y) else true
-  );
-  assume (if stopped_x && not stopped_y && new_stopped_x && new_stopped_y then
-    if new_line_x = new_line_y then U.(new_index_x <=^ new_index_y) else U.(new_line_x <^ new_line_y) else true
-  );
-  ()
-
-let both_acc input i = acc:(loop_acc input i & loop_acc input i){
-  if i = text_length input.lines then true else
-  let (acc_x, acc_y) = acc in monotonicity_loop_invariant input i acc_x acc_y
-}
-
-#reset-options "--max_fuel 4 --z3rlimit 100"
-
-let offset_to_text_point_monotonicity
-  (input:selection)
-  (x: offset input.lines)
-  (y: offset input.lines{U.(x <=^ y)})
-  : Lemma (ensures
-    (point_lte (offset_to_text_point_alt input x) (offset_to_text_point_alt input y))
-  )
-  =
-  let total_lines = text_length input.lines in
-  let acc : both_acc input 0ul = ((| x, 0ul, 0ul, false |), (| y, 0ul, 0ul, false |) ) in
-  let ((| remainder_x, line_x, index_x, stopped_x |), (| remainder_y, line_y, index_y, stopped_y |)) : both_acc input total_lines =
-    vec_foldl input.lines (fun i -> both_acc input i) acc (fun i text_line (acc_x, acc_y) ->
-      let new_acc_x = offset_to_text_point_loop input i text_line acc_x in
-      let new_acc_y = offset_to_text_point_loop input i text_line acc_y in
-      offset_to_text_point_loop_monotonicity input i acc_x acc_y text_line;
-      (new_acc_x, new_acc_y)
-    )
-  in
-  let end_point =  { line = U.(total_lines -^ 1ul); index = line_length input.lines U.(total_lines -^ 1ul) } in
-  let point_x = if stopped_x then begin
-    { line = line_x; index = index_x }
-  end else end_point in
-  let point_y = if stopped_y then begin { line = line_y ; index = index_y } end else end_point in
-  assume (point_x = offset_to_text_point_alt input x);
-  assume (point_y = offset_to_text_point_alt input y);
-  ()
-
-val set_selection_range:
-  input:selection ->
-  start:offset input.lines ->
-  final:offset input.lines ->
-  selection_direction ->
-  selection
-let set_selection_range input start final dir =
-  let text_end = U.uint_to_t (text_total_chars input.lines) in
-  let final : offset input.lines = if U.(final >^ text_end) then text_end else final in
-  let start : offset input.lines = if U.(start >^ final) then final else start in
-  assert U.(start <=^ final);
-  let start_p =  offset_to_text_point_alt input start in
-  let final_p = offset_to_text_point_alt input final in
-  offset_to_text_point_monotonicity input start final;
-  let input = { input with selection_direction = dir } in
-  match dir with
-  | Unspecified | Forward ->
-    { input with
-      selection_origin = Some(start_p);
-      edit_point = final_p;
-    }
-  | Backward ->
-    { input with
-      selection_origin = Some(final_p);
-      edit_point = start_p;
-    }

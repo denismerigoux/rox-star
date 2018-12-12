@@ -12,6 +12,8 @@ module I32 = FStar.Int32
 
 (*** Integers *)
 
+(**** Types and max values *)
+
 type u64 = U64.t
 let _MAX_U64 = U64.uint_to_t (FStar.UInt.max_int 64)
 
@@ -32,9 +34,36 @@ type isize = Isize.t
 let _MAX_ISIZE = Isize.int_to_t (FStar.Int.max_int 32)
 let _MIN_ISIZE = Isize.int_to_t (FStar.Int.min_int 32)
 
+
 type i32 = I32.t
 let _MAX_I32 = I32.int_to_t (FStar.Int.max_int 32)
 let _MIN_I32 = I32.int_to_t (FStar.Int.min_int 32)
+
+(**** Casts and basic functions *)
+
+let isize_to_usize_safe (x:isize{Isize.(x >=^ 0l)}) : Tot usize = Usize.uint_to_t (Isize.v x)
+let usize_to_isize_safe (x:usize{Usize.v x <= Isize.v _MAX_ISIZE}) : Tot isize =
+  Isize.int_to_t (Usize.v x)
+
+let max_isize (x y:isize) = Isize.(if x >=^ y then x else y)
+let min_isize (x y:isize) = Isize.(if x >=^ y then y else x)
+
+let max_usize (x y:usize) = Usize.(if x >=^ y then x else y)
+let min_usize (x y:usize) = Usize.(if x >=^ y then y else x)
+
+let neg_isize (x:isize) = if x = _MIN_ISIZE then _MIN_ISIZE else Isize.int_to_t (- Isize.v x)
+
+let neg_isize_lemma1 (x:isize) : Lemma (requires (Isize.(x <=^ 0l) /\ x <> _MIN_ISIZE))
+  (ensures (Isize.(neg_isize x >=^ 0l))) [SMTPat (neg_isize x)] = ()
+
+let neg_isize_lemma2 (x:isize) : Lemma (requires (Isize.(x >=^ 0l)))
+  (ensures (Isize.(neg_isize x <=^ 0l))) [SMTPat (neg_isize x)] = ()
+
+(*** Strings *)
+
+type rust_string = s:string{FStar.String.strlen s <= Usize.v _MAX_USIZE}
+
+let string_length (s:rust_string) : Tot usize = Usize.uint_to_t (FStar.String.strlen s)
 
 open FStar.Seq
 
@@ -83,41 +112,6 @@ let vec_update_lemma2 (#a:eqtype) (s:vec a) (idx:vec_idx s) (new_val:a)
   [SMTPat (vec_index (vec_update s idx new_val) idx)]
   = ()
 
-private val repeat_left:
-    lo:nat
-  -> hi:nat{lo <= hi}
-  -> a:(i:nat{lo <= i /\ i <= hi} -> Type)
-  -> f:(i:nat{lo <= i /\ i < hi} -> a i -> a (i + 1))
-  -> acc:a lo
-  -> Tot (a hi) (decreases (hi - lo))
-private let rec repeat_left lo hi a f acc =
-  if lo = hi then acc
-  else repeat_left (lo + 1) hi a f (f lo acc)
-
-
-val vec_foldl :
-  #b:Type ->
-  vector:vec b ->
-  a:(i:usize{Usize.(i <=^ vec_length vector)} -> Type) ->
-  a 0ul ->
-  f:( i:usize{Usize.(i <^ vec_length vector)} -> b -> a i -> Tot (a Usize.(i +^ 1ul))) ->
-  Tot (a (vec_length vector))
-let vec_foldl #b vector a x f =
-  let len = vec_length vector in
-  if len = 0ul then x else
-    repeat_left 0 (Usize.v len)
-    (fun (i:nat{0 <= i /\ i <= Usize.v len}) -> a (Usize.uint_to_t i))
-    (fun i acc -> f (Usize.uint_to_t i) (vec_index vector (Usize.uint_to_t i)) acc)
-    x
-
-val vec_all : #b:Type -> vector:vec b -> f:(b -> bool) -> Tot bool (decreases vector)
-let rec vec_all #b vector f = let len = vec_length vector in
-    repeat_left 0 (Usize.v len)
-    (fun _ -> bool)
-    (fun i acc -> acc && f (vec_index vector (Usize.uint_to_t i)))
-    true
-
-
 (*** Arrays *)
 
 let array (a : Type0) (len: usize) = l:(seq a){length l = Usize.v len}
@@ -158,8 +152,40 @@ let array_to_iter #a #len arr = arr
 val vec_to_iter : #a:eqtype -> vec a -> iter a
 let vec_to_iter #a s = s
 
-val collect : #a:eqtype -> iter a -> vec a
-let collect #a it = it
+val iter_collect : #a:eqtype -> iter a -> vec a
+let iter_collect #a it = it
+
+private val repeat_left:
+    lo:nat
+  -> hi:nat{lo <= hi}
+  -> a:(i:nat{lo <= i /\ i <= hi} -> Type)
+  -> f:(i:nat{lo <= i /\ i < hi} -> a i -> a (i + 1))
+  -> acc:a lo
+  -> Tot (a hi) (decreases (hi - lo))
+private let rec repeat_left lo hi a f acc =
+  if lo = hi then acc
+  else repeat_left (lo + 1) hi a f (f lo acc)
+
+val iter_foldl : #b:Type -> #a:Type ->
+  s:vec b ->
+  init:a ->
+  f:(a ->  b -> Tot a) ->
+  Tot a
+let iter_foldl #b #a s x f =
+  let len = vec_length s in
+  if len = 0ul then x else
+    repeat_left 0 (Usize.v len)
+    (fun _ -> a )
+    (fun i acc -> f acc (vec_index s (Usize.uint_to_t i)))
+    x
+
+val vec_all : #b:Type -> vector:vec b -> f:(b -> bool) -> Tot bool (decreases vector)
+let rec vec_all #b vector f = let len = vec_length vector in
+    repeat_left 0 (Usize.v len)
+    (fun _ -> bool)
+    (fun i acc -> acc && f (vec_index vector (Usize.uint_to_t i)))
+    true
+
 
 private val enumerate_aux :
   #a:eqtype ->
@@ -191,5 +217,12 @@ val enumerate: #a:eqtype -> vec a -> Tot (vec (a & usize))
 let enumerate #a s = enumerate_aux (length s) s
 
 let enumerate_lemma1 (#a:eqtype) (s:iter a) (idx:vec_idx s)
-  : Lemma (ensures (vec_index (collect (enumerate s)) idx = (vec_index s idx, idx)))
-  [SMTPat (vec_index (collect (enumerate s)) idx)] = enumerate_aux_lemma (length s) s idx
+  : Lemma (ensures (vec_index (iter_collect (enumerate s)) idx = (vec_index s idx, idx)))
+  [SMTPat (vec_index (iter_collect (enumerate s)) idx)] = enumerate_aux_lemma (length s) s idx
+
+(*** Sugars *)
+
+(* Function composition with . *)
+unfold let op_Bar_Dot (#a:Type) (#b:Type) (#c:Type) (f: a -> b) (g:b -> c) = fun (x : a) -> g (f x)
+
+unfold let op_Hat_Dot (#a:Type) (#b:Type) (x:a) (f:a -> b) = f x
