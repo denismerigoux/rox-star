@@ -45,10 +45,34 @@ impl BloomStorageU8 {
         hash2(hash) as usize
     }
 
-    /// Creates a new bloom filter.
     #[inline]
-    pub fn new() -> Self {
-         Default::default()
+    fn slot_value(&self, index: usize) -> u8 {
+        debug_assert!(valid_index(index));
+        self.counters[index]
+    }
+
+    #[inline]
+    fn slot_is_empty(&self, index: usize) -> bool {
+        debug_assert!(valid_index(index));
+        self.slot_value(index)  == 0
+    }
+
+    #[inline]
+    fn first_slot_is_empty(&self, hash: u32) -> bool {
+        self.slot_is_empty(Self::first_slot_index(hash))
+    }
+
+    #[inline]
+    fn second_slot_is_empty(&self, hash: u32) -> bool {
+        self.slot_is_empty(Self::second_slot_index(hash))
+    }
+
+    /// Check whether the filter might contain an item with the given hash.
+    /// This can sometimes return true even if the item is not in the filter,
+    /// but will never return false for items that are actually in the filter.
+    #[inline]
+    pub fn might_contain_hash(&self, hash: u32) -> bool {
+        !self.first_slot_is_empty(hash) && !self.second_slot_is_empty(hash)
     }
 
     #[inline]
@@ -66,14 +90,13 @@ impl BloomStorageU8 {
     }
 
     #[inline]
-    fn slot_is_empty(&self, index: usize) -> bool {
-        debug_assert!(valid_index(index));
-        self.counters[index] == 0
+    fn adjust_first_slot(&mut self, hash: u32, increment: bool) {
+        self.adjust_slot(Self::first_slot_index(hash), increment)
     }
 
     #[inline]
-    pub fn clear(&mut self) {
-        self.counters = [0;ARRAY_SIZE];
+    fn adjust_second_slot(&mut self, hash: u32, increment: bool) {
+        self.adjust_slot(Self::second_slot_index(hash), increment)
     }
 
     /// Inserts an item with a particular hash into the bloom filter.
@@ -90,32 +113,10 @@ impl BloomStorageU8 {
         self.adjust_second_slot(hash, false);
     }
 
-    /// Check whether the filter might contain an item with the given hash.
-    /// This can sometimes return true even if the item is not in the filter,
-    /// but will never return false for items that are actually in the filter.
+    /// Creates a new bloom filter.
     #[inline]
-    pub fn might_contain_hash(&self, hash: u32) -> bool {
-        !self.first_slot_is_empty(hash) && !self.second_slot_is_empty(hash)
-    }
-
-    #[inline]
-    fn first_slot_is_empty(&self, hash: u32) -> bool {
-        self.slot_is_empty(Self::first_slot_index(hash))
-    }
-
-    #[inline]
-    fn second_slot_is_empty(&self, hash: u32) -> bool {
-        self.slot_is_empty(Self::second_slot_index(hash))
-    }
-
-    #[inline]
-    fn adjust_first_slot(&mut self, hash: u32, increment: bool) {
-        self.adjust_slot(Self::first_slot_index(hash), increment)
-    }
-
-    #[inline]
-    fn adjust_second_slot(&mut self, hash: u32, increment: bool) {
-        self.adjust_slot(Self::second_slot_index(hash), increment)
+    pub fn new() -> Self {
+         Default::default()
     }
 
 }
@@ -163,9 +164,4 @@ fn create_and_insert_some_stuff() {
 
     assert!(false_positives < 20, "{} is not < 20", false_positives); // 20%.
 
-    bf.clear();
-
-    for i in 0_usize..2000 {
-        assert!(!bf.might_contain_hash(hash_as_str(i)));
-    }
 }

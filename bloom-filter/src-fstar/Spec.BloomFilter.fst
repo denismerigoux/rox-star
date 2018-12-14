@@ -9,6 +9,7 @@ module Isize = FStar.Int32
 module I32 = FStar.Int32
 
 open Rust
+open BloomFilter
 open FStar.List.Tot.Base
 
 assume type element: eqtype
@@ -98,3 +99,29 @@ val spec_remove_element:
   Tot spec_bloom_storage_u8
 let spec_remove_element bf e =
     { bf with elements = decr_count bf.elements e }
+
+type bloom_filter = {
+  storage: bloom_storage_u8;
+  ghost_state: spec_bloom_storage_u8
+}
+
+val new_bloom_filter: unit -> Tot bloom_filter
+let new_bloom_filter () = {
+  storage = bloom_storage_u8_new ();
+  ghost_state = { elements = [] }
+}
+
+val insert_element: bf:bloom_filter -> e:element -> Tot bloom_filter
+let insert_element bf e =
+  let hash_val = hash e in
+  (* *) let new_bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
+  { new_bf with storage = insert_hash new_bf.storage hash_val }
+
+val remove_element:
+  bf:bloom_filter ->
+  e:element{contains bf.ghost_state.elements e} ->
+  Tot bloom_filter
+let remove_element bf e =
+  let hash_e = hash e in
+  (* *) let new_bf = { bf with ghost_state = spec_remove_element bf.ghost_state e } in
+  { new_bf with storage = remove_hash new_bf.storage hash_e }

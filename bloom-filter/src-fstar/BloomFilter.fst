@@ -9,7 +9,6 @@ module Isize = FStar.Int32
 module I32 = FStar.Int32
 
 open Rust
-open Spec.BloomFilter
 
 #reset-options "--max_fuel 0"
 
@@ -20,8 +19,7 @@ let _ARRAY_SIZE: usize = Usize.(1ul <<^ _KEY_SIZE)
 let _KEY_MASK: u32 = Usize.((1ul <<^ _KEY_SIZE) -%^ 1ul)
 
 type bloom_storage_u8 = {
-  counters: array u8 _ARRAY_SIZE;
-  ghost_state: spec_bloom_storage_u8
+  counters: array u8 _ARRAY_SIZE
 }
 
 let valid_index = i:usize{Usize.(i <^ _ARRAY_SIZE)}
@@ -110,31 +108,9 @@ let remove_hash bf hash =
   let bf = adjust_first_slot bf hash false in
   adjust_second_slot bf hash false
 
-val is_zeroed: bf:bloom_storage_u8 -> Tot bool
-let is_zeroed bf =
-  vec_all bf.counters (fun x -> x = 0uy)
-
 #reset-options "--max_fuel 1"
 
-val new_bf : unit -> Tot bloom_storage_u8
-let new_bf () = {
+val bloom_storage_u8_new : unit -> Tot bloom_storage_u8
+let bloom_storage_u8_new () = {
   counters = array_new _ARRAY_SIZE 0uy ;
-  (* *) ghost_state = { elements = [] }
 }
-
-#reset-options "--max_fuel 0"
-
-val insert_element: bf:bloom_storage_u8 -> e:element -> Tot bloom_storage_u8
-let insert_element bf e =
-  let hash_val = hash e in
-  (* *) let new_bf = { bf with ghost_state = spec_insert_element bf.ghost_state e } in
-  insert_hash new_bf hash_val
-
-val remove_element:
-  bf:bloom_storage_u8 ->
-  e:element{contains bf.ghost_state.elements e} ->
-  Tot bloom_storage_u8
-let remove_element bf e =
-  let hash_e = hash e in
-  (* *) let new_bf = { bf with ghost_state = spec_remove_element bf.ghost_state e } in
-  remove_hash new_bf hash_e

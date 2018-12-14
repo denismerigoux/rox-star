@@ -2,8 +2,13 @@
 
 FSTAR=$(FSTAR_HOME)/bin/fstar.exe
 
-%.fst.hints: %.fst
-	$(FSTAR) $^ --use_hints --record_hints --include ../
+%.fst:
+	$(FSTAR) $^ --use_hints --record_hints --include ../ --include src-fstar/
 
+all: verify cargo
 
-verify: Proof.BloomFilter.fst.hints
+verify:
+		$(FSTAR) src-fstar/Proof.BloomFilter.fst --use_hints --record_hints --include ../ --include src-fstar/
+
+cargo:
+		cargo test
