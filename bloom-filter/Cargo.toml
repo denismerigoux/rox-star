@@ -1,0 +1,6 @@
+[package]
+name = "verified-bloom-filter"
+version = "0.1.0"
+authors = ["Denis Merigoux <denis.merigoux@gmail.com>"]
+
+[dependencies]
