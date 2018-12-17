@@ -1,5 +1,6 @@
 /// This code is  inspired by Servo's bloom filter implementation
-/// contained in the file [`servo/components/selector/bloom.rs`]
+/// contained in the file
+/// [`servo/components/selector/bloom.rs`](https://github.com/servo/servo/blob/master/components/selectors/bloom.rs)
 
 const KEY_SIZE: usize = 12;
 

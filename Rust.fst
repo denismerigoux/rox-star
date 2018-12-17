@@ -222,7 +222,14 @@ let enumerate_lemma1 (#a:eqtype) (s:iter a) (idx:vec_idx s)
 
 (*** Sugars *)
 
-(* Function composition with . *)
-unfold let op_Bar_Dot (#a:Type) (#b:Type) (#c:Type) (f: a -> b) (g:b -> c) = fun (x : a) -> g (f x)
+(**** Option type *)
 
-unfold let op_Hat_Dot (#a:Type) (#b:Type) (x:a) (f:a -> b) = f x
+let unwrap_or (#a:Type) (x:option a) (d:a) : a = match x with
+  | Some x -> x
+  | None -> d
+
+let is_some (#a:Type) (x:option a) : bool = match x with
+  | Some _ -> true
+  | None -> false
+
+let is_none (#a:Type) (x:option a) : bool = not (is_some x)

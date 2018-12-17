@@ -60,8 +60,6 @@ type text_input = {
   edit_point: text_point;
   selection_origin: option text_point;
   selection_direction: selection_direction;
-  max_length: option usize;
-  min_length: option usize;
 }
 
 let assert_edit_order (input: text_input) : Tot bool =
@@ -84,76 +82,86 @@ let assert_ok_selection input =
 
 type selection = input:text_input{assert_ok_selection input}
 
-type valid_text_point (input:selection) = p:text_point{
-  Usize.(p.line <^ number_of_lines input.lines) &&
-  Usize.(p.index <=^ (line_len input.lines p.line))
-}
+let is_valid_text_point (self:text_point) (input:selection) =
+  Usize.(self.line <^ number_of_lines input.lines) &&
+  Usize.(self.index <=^ (line_len input.lines self.line))
+
+type valid_text_point (input:selection) = p:text_point{is_valid_text_point p input}
 
 val current_line_length :
-  input:text_input{Usize.(input.edit_point.line <^ number_of_lines input.lines)} ->
+  self:text_input{Usize.(self.edit_point.line <^ number_of_lines self.lines)} ->
   usize
-let current_line_length input = line_len input.lines input.edit_point.line
+let current_line_length self = line_len self.lines self.edit_point.line
 
 val clear_selection : selection -> Tot selection
-let clear_selection input =
-  { input with
-    selection_origin = None;
-    selection_direction = Unspecified;
-  }
+let clear_selection self =
+  let input = { self with selection_origin = None} in
+  let input = { self with selection_direction = Unspecified} in
+  self
 
 val select_all : selection -> Tot selection
-let select_all input =
-  let last_line = Usize.(number_of_lines input.lines -^ 1ul) in
-  { input with
-    selection_origin = Some({ line = 0ul; index = 0ul });
-    edit_point = { line = last_line; index = line_len input.lines last_line};
-    selection_direction = Forward;
-  }
+let select_all self =
+  let last_line = Usize.(number_of_lines self.lines -^ 1ul) in
+  let self = { self with selection_origin = Some({ line = 0ul; index = 0ul }) } in
+  let self =
+    { self with edit_point = { line = last_line; index = line_len self.lines last_line} }
+   in let self = { self with selection_direction = Forward } in
+   self
 
-val selection_origin_or_edit_point : input:selection -> Tot (valid_text_point input)
-let selection_origin_or_edit_point input = match input.selection_origin with
-  | Some o -> o
-  | None -> input.edit_point
+val selection_origin_or_edit_point : self:selection -> Tot (valid_text_point self)
+let selection_origin_or_edit_point self =
+  unwrap_or self.selection_origin self.edit_point
 
-val selection_start : input:selection -> Tot (valid_text_point input)
-let selection_start input = match input.selection_direction with
-  | Unspecified | Forward -> selection_origin_or_edit_point input
-  | Backward -> input.edit_point
+val selection_start : self:selection -> Tot (valid_text_point self)
+let selection_start self = match self.selection_direction with
+  | Unspecified | Forward -> selection_origin_or_edit_point self
+  | Backward -> self.edit_point
 
-val selection_end : input:selection -> Tot (valid_text_point input)
-let selection_end input = match input.selection_direction with
-  | Unspecified | Forward -> input.edit_point
-  | Backward -> selection_origin_or_edit_point input
+val selection_end : self:selection -> Tot (valid_text_point self)
+let selection_end self = match self.selection_direction with
+  | Unspecified | Forward -> self.edit_point
+  | Backward -> selection_origin_or_edit_point self
+
+let has_selection (self:selection) : Tot bool =
+  is_some self.selection_origin
 
 val adjust_selection_for_horizontal_change :
   selection ->
   direction ->
   selection_status ->
   Tot (selection * bool)
-let adjust_selection_for_horizontal_change input adjust select =
-  match (select, input.selection_origin) with
-  | (Selected, None) -> (input, input.selection_origin = Some(input.edit_point))
-  | (NotSelected, Some(_)) ->
-    let new_edit_point = match adjust with
-      | DBackward -> selection_start input
-      | DForward -> selection_end input
-    in
-    ({ input with
-      edit_point = new_edit_point
-    }, true)
-  | _ -> (input, false)
+let adjust_selection_for_horizontal_change self adjust select =
+  if select = Selected then
+    let self = if is_none self.selection_origin then
+      let self = { self with selection_origin = Some (self.edit_point) } in
+      self
+    else self in
+    (self, false)
+  else
+    let self = if has_selection self then
+      let self = { self with edit_point = match adjust with
+      | DBackward -> selection_start self
+      | DForward -> selection_end self
+      } in
+      let self = clear_selection self in
+      self
+    else self in
+    (self, true)
 
 val adjust_horizontal_to_limit : selection -> direction -> selection_status -> text_input
-let adjust_horizontal_to_limit input direction select =
-  let (input, adjust) = adjust_selection_for_horizontal_change input direction select in
+let adjust_horizontal_to_limit self direction select =
+  let (self, adjust) = adjust_selection_for_horizontal_change self direction select in
   if adjust then
-    input
+    self
   else match direction with
-    | DBackward -> { input with edit_point = { line = 0ul; index = 0ul; } }
-    | DForward -> { input with edit_point = {
-        line = Usize.((number_of_lines input.lines) -^ 1ul);
-	index = line_len input.lines Usize.((number_of_lines input.lines) -^ 1ul)
-      } }
+    | DBackward -> let self = { self with  edit_point = { self.edit_point with line = 0ul } } in
+      let self = { self with edit_point = { self.edit_point with index = 0ul } } in
+      self
+    | DForward -> let self = { self with edit_point = { self.edit_point with
+        line = Usize.((number_of_lines self.lines) -^ 1ul) } } in
+        let self = { self with edit_point = { self.edit_point with
+	index = line_len self.lines Usize.((number_of_lines self.lines) -^ 1ul) } } in
+	self
 
 val clear_selection_to_limit : selection -> direction -> selection
 let clear_selection_to_limit input direction =
