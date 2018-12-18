@@ -51,14 +51,6 @@ let min_isize (x y:isize) = Isize.(if x >=^ y then y else x)
 let max_usize (x y:usize) = Usize.(if x >=^ y then x else y)
 let min_usize (x y:usize) = Usize.(if x >=^ y then y else x)
 
-let neg_isize (x:isize) = if x = _MIN_ISIZE then _MIN_ISIZE else Isize.int_to_t (- Isize.v x)
-
-let neg_isize_lemma1 (x:isize) : Lemma (requires (Isize.(x <=^ 0l) /\ x <> _MIN_ISIZE))
-  (ensures (Isize.(neg_isize x >=^ 0l))) [SMTPat (neg_isize x)] = ()
-
-let neg_isize_lemma2 (x:isize) : Lemma (requires (Isize.(x >=^ 0l)))
-  (ensures (Isize.(neg_isize x <=^ 0l))) [SMTPat (neg_isize x)] = ()
-
 (*** Strings *)
 
 type rust_string = s:string{FStar.String.strlen s <= Usize.v _MAX_USIZE}

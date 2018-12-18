@@ -184,9 +184,146 @@ impl Selection {
                 }
                 Direction::Forward => {
                     self.edit_point.line = &self.lines.len() - 1;
-                    self.edit_point.index = line_len (&self.lines, number_of_lines(&self.lines) - 1);
+                    self.edit_point.index = line_len(&self.lines, number_of_lines(&self.lines) - 1);
                 }
             }
+        }
+    }
+
+    pub fn clear_selection_to_limit(&mut self, direction: Direction) {
+        self.clear_selection();
+        self.adjust_horizontal_to_limit(direction, SelectionStatus::NotSelected);
+    }
+
+    fn update_selection_direction(&mut self) {
+        self.selection_direction = if Some(self.edit_point) < self.selection_origin {
+            SelectionDirection::Backward
+        } else {
+            SelectionDirection::Forward
+        }
+    }
+
+    pub fn adjust_vertical(&mut self, adjust: isize, select: SelectionStatus) {
+        if select == SelectionStatus::Selected {
+            if self.selection_origin.is_none() {
+                self.selection_origin = Some(self.edit_point);
+            }
+        } else {
+            self.clear_selection();
+        }
+
+        assert!(self.edit_point.line < number_of_lines(&self.lines));
+
+        let target_line: isize = self.edit_point.line as isize + adjust;
+
+        if target_line < 0 {
+            self.edit_point.line = 0;
+            self.edit_point.index = 0;
+            if self.selection_origin.is_some()
+                && (self.selection_direction == SelectionDirection::Unspecified
+                    || self.selection_direction == SelectionDirection::Forward)
+            {
+                self.selection_origin = Some(TextPoint { line: 0, index: 0 });
+            }
+        } else if target_line as usize >= number_of_lines(&self.lines) {
+            self.edit_point.line = self.lines.len() - 1;
+            self.edit_point.index = self.current_line_length();
+            if self.selection_origin.is_some()
+                && (self.selection_direction == SelectionDirection::Backward)
+            {
+                self.selection_origin = Some(self.edit_point);
+            }
+        } else {
+            let target_line_length = line_len(&self.lines, target_line as usize);
+            let col = std::cmp::min(self.edit_point.index, target_line_length);
+            self.edit_point.line = target_line as usize;
+            self.edit_point.index = col;
+            if let Some(origin) = self.selection_origin {
+                if ((self.selection_direction == SelectionDirection::Unspecified
+                    || self.selection_direction == SelectionDirection::Forward)
+                    && self.edit_point <= origin)
+                    || (self.selection_direction == SelectionDirection::Backward
+                        && origin <= self.edit_point)
+                {
+                    self.selection_origin = Some(self.edit_point);
+                }
+            }
+        }
+    }
+
+    fn perform_horizontal_adjustment(&mut self, adjust: isize, select: SelectionStatus) {
+        if adjust < 0 {
+            let remaining = self.edit_point.index;
+            let neg_val = -adjust;
+            let adjust_abs = neg_val as usize;
+            if adjust_abs as usize > remaining && self.edit_point.line > 0 {
+                self.adjust_vertical(-1, select);
+                self.edit_point.index = self.current_line_length();
+                let adjust = adjust + remaining as isize + 1;
+                let direction = if adjust >= 0 {
+                    Direction::Forward
+                } else {
+                    Direction::Backward
+                };
+                let done = self.adjust_selection_for_horizontal_change(direction, select);
+                if !done {
+                    self.perform_horizontal_adjustment(adjust, select);
+                }
+            } else {
+                self.edit_point.index =
+                    std::cmp::max(0, self.edit_point.index as isize + adjust) as usize;
+            }
+        } else {
+            let remaining = self.current_line_length() - self.edit_point.index;
+            if adjust as usize > remaining && self.lines.len() > self.edit_point.line + 1 {
+                self.adjust_vertical(1, select);
+                self.edit_point.index = 0;
+                // one shift is consumed by the change of line, hence the -1
+                let adjust = adjust - remaining as isize - 1;
+                let direction = if adjust >= 0 {
+                    Direction::Forward
+                } else {
+                    Direction::Backward
+                };
+                let done = self.adjust_selection_for_horizontal_change(direction, select);
+                if !done {
+                    self.perform_horizontal_adjustment(adjust, select);
+                }
+            } else {
+                self.edit_point.index = std::cmp::min(
+                    self.current_line_length(),
+                    self.edit_point.index + adjust as usize,
+                );
+            }
+        }
+        self.update_selection_direction();
+    }
+
+    pub fn adjust_horizontal(&mut self, adjust: isize, select: SelectionStatus) {
+        let direction = if adjust >= 0 {
+            Direction::Forward
+        } else {
+            Direction::Backward
+        };
+        if self.adjust_selection_for_horizontal_change(direction, select) {
+            return;
+        }
+        self.perform_horizontal_adjustment(adjust, select);
+    }
+
+    pub fn adjust_horizontal_to_line_end(&mut self, direction: Direction, select: SelectionStatus) {
+        let done = self.adjust_selection_for_horizontal_change(direction, select);
+        if !done {
+            let shift: isize = {
+                match direction {
+                    Direction::Backward => -(self.edit_point.index as isize),
+                    Direction::Forward => {
+                        (line_len(&self.lines, self.edit_point.line) - self.edit_point.index)
+                            as isize
+                    }
+                }
+            };
+            self.perform_horizontal_adjustment(shift, select);
         }
     }
 }
