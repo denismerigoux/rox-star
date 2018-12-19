@@ -1,7 +1,11 @@
 /// This code is  inspired by Servo's bloom filter implementation
 /// contained in the file
 /// [`servo/script/textinput.rs`](https://github.com/servo/servo/blob/master/components/script/textinput.rs)
+
+extern crate rox_star_lib;
+
 use std::marker::PhantomData;
+use rox_star_lib::RoxVec;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SelectionStatus {
@@ -16,19 +20,28 @@ pub enum SelectionDirection {
     Unspecified,
 }
 
-/// The direction in which to delete a character.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Direction {
     Forward,
     Backward,
 }
 
+//#[refinement |x| => x.to_nat() <= std::isize::MAX.to_nat()) ]
+type SmallUsize = usize;
+
+//#[fstar_prefix "noeq"]
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct TextPoint {
     /// 0-based line number
-    pub line: usize,
-    /// 0-based column number in UTF-8 bytes
-    pub index: usize,
+    pub line: SmallUsize,
+    /// 0-based column number
+    pub index: SmallUsize,
+}
+
+impl TextPoint {
+    fn lte(&self, other: &TextPoint) -> bool {
+        self.line < other.line || (self.line == other.line && self.index <= other.index)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -38,19 +51,25 @@ pub struct SelectionState {
     direction: SelectionDirection,
 }
 
-pub struct DOMString(String, PhantomData<*const ()>);
+//#[assume]
+type Pointer = *const ();
+
+//#[refinement (fun s -> s.0.len().to_nat() < std::isize::MAX.to_nat() )]
+pub struct DOMString(String, PhantomData<Pointer>);
 
 impl DOMString {
     fn len(&self) -> usize {
-        self.0.len()
+        let DOMString(s,_) = &self;
+        s.len()
     }
 }
 
-fn number_of_lines(t: &Vec<DOMString>) -> usize {
+fn number_of_lines(t: &RoxVec<DOMString>) -> usize {
     t.len()
 }
 
-type Text = Vec<DOMString>;
+//#[refinement (fun t -> number_of_lines(t).to_nat() <= std::isize::MAX.to_nat() ]
+type Text = RoxVec<DOMString>;
 
 fn line_len(t: &Text, i: usize) -> usize {
     t[i].len()
@@ -58,7 +77,7 @@ fn line_len(t: &Text, i: usize) -> usize {
 
 pub struct TextInput {
     /// Current text input content, split across lines without trailing '\n'
-    lines: Vec<DOMString>,
+    lines: RoxVec<DOMString>,
 
     /// Current cursor input point
     edit_point: TextPoint,
@@ -77,9 +96,9 @@ impl TextInput {
                 && begin.index <= self.lines[begin.line].len()
                 && (match self.selection_direction {
                     SelectionDirection::Unspecified | SelectionDirection::Forward => {
-                        begin <= self.edit_point
+                        begin.lte(&self.edit_point)
                     }
-                    SelectionDirection::Backward => self.edit_point <= begin,
+                    SelectionDirection::Backward => self.edit_point.lte(&begin),
                 })
         } else {
             true
@@ -196,8 +215,12 @@ impl Selection {
     }
 
     fn update_selection_direction(&mut self) {
-        self.selection_direction = if Some(self.edit_point) < self.selection_origin {
-            SelectionDirection::Backward
+        self.selection_direction = if let Some(origin) = self.selection_origin {
+            if self.edit_point.lte(&origin) {
+                SelectionDirection::Backward
+            } else {
+                SelectionDirection::Forward
+            }
         } else {
             SelectionDirection::Forward
         }
@@ -241,9 +264,9 @@ impl Selection {
             if let Some(origin) = self.selection_origin {
                 if ((self.selection_direction == SelectionDirection::Unspecified
                     || self.selection_direction == SelectionDirection::Forward)
-                    && self.edit_point <= origin)
+                    && self.edit_point.lte(&origin))
                     || (self.selection_direction == SelectionDirection::Backward
-                        && origin <= self.edit_point)
+                        && origin.lte(&self.edit_point))
                 {
                     self.selection_origin = Some(self.edit_point);
                 }

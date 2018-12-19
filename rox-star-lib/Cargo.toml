@@ -1,7 +1,9 @@
 [package]
-name = "verified-bloom-filter"
+name = "rox-star-lib"
 version = "0.1.0"
 authors = ["Denis Merigoux <denis.merigoux@gmail.com>"]
+edition = "2018"
 
 [dependencies]
-rox-star-lib = { path = "../rox-star-lib" }
+num-bigint = "*"
+num-traits = "*"

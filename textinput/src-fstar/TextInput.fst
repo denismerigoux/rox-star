@@ -24,19 +24,17 @@ type direction =
   | DForward
   | DBackward
 
-type small_usize = x:usize{Usize.v x + 1 <= Isize.v _MAX_ISIZE }
-
-let abs_isize (x: isize{Isize.(x >^ _MIN_ISIZE)}) : usize =
-  Isize.(if x >=^ 0l then isize_to_usize_safe x else isize_to_usize_safe (Isize.(0l -^ x)))
+type small_usize = x:usize{Usize.v x <= Isize.v _MAX_ISIZE }
 
 type text_point = {
   line: small_usize;
   index: small_usize;
 }
-val point_lte : text_point -> text_point -> Tot bool
-let point_lte p1 p2 =
-  Usize.(p1.line <^ p2.line) ||
-  Usize.((p1.line = p2.line && p1.index <=^ p2.index))
+
+val text_point_lte : text_point -> text_point -> Tot bool
+let text_point_lte self other =
+  Usize.(self.line <^ other.line) ||
+  Usize.((self.line = other.line && self.index <=^ other.index))
 
 type selection_state = {
   start: text_point;
@@ -44,18 +42,20 @@ type selection_state = {
   direction: selection_direction
 }
 
-type dom_string = s:rust_string{Usize.v (string_length s) + 1 < Isize.v _MAX_ISIZE}
+assume type pointer
 
-let dom_string_len (s:dom_string) : Tot usize = string_length s
+type dom_string = (s:rust_string{Usize.v (string_length s) < Isize.v _MAX_ISIZE}) & FStar.Ghost.erased pointer
+
+let dom_string_len (s:dom_string) : Tot usize = let (| s, _ |) = s in string_length s
 
 let number_of_lines (t:vec dom_string) : Tot usize = vec_length t
 
-type text = t:vec dom_string{Usize.v (number_of_lines t) + 1 <= Isize.v _MAX_ISIZE}
+type text = t:vec dom_string{Usize.v (number_of_lines t) <= Isize.v _MAX_ISIZE}
 
 val line_len : text:text -> i:vec_idx text -> Tot usize
 let line_len t i =  dom_string_len (vec_index t i)
 
-type text_input = {
+noeq type text_input = {
   lines: text;
   edit_point: text_point;
   selection_origin: option text_point;
@@ -68,8 +68,8 @@ let assert_edit_order (input: text_input) : Tot bool =
       Usize.(start.line <^ (number_of_lines input.lines)) &&
       Usize.(start.index <=^ (line_len input.lines start.line)) &&
       begin match input.selection_direction with
-	| Unspecified | Forward -> point_lte start input.edit_point
-	| Backward -> point_lte input.edit_point start
+	| Unspecified | Forward -> text_point_lte start input.edit_point
+	| Backward -> text_point_lte input.edit_point start
       end
     | None -> true
   end
@@ -173,8 +173,8 @@ val update_selection_direction : text_input -> text_input
 let update_selection_direction input =
   { input with
     selection_direction = match input.selection_origin with
+     | Some(origin) -> if text_point_lte input.edit_point origin then Backward else Forward
      | None -> Forward
-     | Some(origin) -> if point_lte input.edit_point origin then Backward else Forward
   }
 
 #reset-options "--z3rlimit 20"
@@ -225,8 +225,8 @@ let adjust_vertical self adjust select =
     let self = match self.selection_origin with
     | Some origin -> if
       ((self.selection_direction = Unspecified || self.selection_direction = Forward) &&
-        point_lte self.edit_point origin) ||
-      (self.selection_direction = Backward && point_lte origin self.edit_point) then
+        text_point_lte self.edit_point origin) ||
+      (self.selection_direction = Backward && text_point_lte origin self.edit_point) then
       let self = { self with selection_origin = Some self.edit_point } in
       self else self
     | None -> self
@@ -242,7 +242,7 @@ val perform_horizontal_adjustment :
   } ->
   selection_status ->
   Tot selection
-  (decreases (Usize.v (abs_isize adjust)))
+  (decreases (Isize.v (if Isize.(adjust <^ 0l) then Isize.(0l -^ adjust) else adjust)))
 let rec perform_horizontal_adjustment self adjust select =
   let self = if Isize.(adjust <^ 0l) then begin
     let neg_val = Isize.(0l -^ adjust) in
@@ -291,7 +291,6 @@ val adjust_horizontal :
   adjust:isize{Isize.(adjust >^ _MIN_ISIZE)} ->
   selection_status ->
   Tot selection
-  (decreases (abs_isize adjust))
 let adjust_horizontal self adjust select =
   let direction = if Isize.(adjust >=^ 0l) then DForward else DBackward in
   let (self, done) = adjust_selection_for_horizontal_change self direction select in
