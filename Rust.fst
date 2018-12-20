@@ -225,3 +225,15 @@ let is_some (#a:Type) (x:option a) : bool = match x with
   | None -> false
 
 let is_none (#a:Type) (x:option a) : bool = not (is_some x)
+
+(*** Testing *)
+
+let assert_eq (#a:eqtype) (id:string) (printing: (a -> All.ML unit)) (x y:a) : All.ML unit =
+  if x = y then () else begin
+    IO.print_string "assertion [";
+    IO.print_string "] failed: ";
+    printing x;
+    IO.print_string " != ";
+    printing y;
+    IO.print_string "\n"
+  end

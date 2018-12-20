@@ -23,3 +23,4 @@ extract: src-fstar/Test.TextInput.exe
 
 test : src-fstar/Test.TextInput.exe
 	./Test_TextInput.exe
+	cargo test
