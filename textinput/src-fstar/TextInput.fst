@@ -42,15 +42,16 @@ type selection_state = {
   direction: selection_direction
 }
 
-assume type pointer
 
-type dom_string = (s:rust_string{Usize.v (string_length s) < Isize.v _MAX_ISIZE}) & FStar.Ghost.erased pointer
+type dom_string = (s:rust_string{Usize.v (string_length s) < Isize.v _MAX_ISIZE})
 
-let dom_string_len (s:dom_string) : Tot usize = let (| s, _ |) = s in string_length s
+let dom_string_len (s:dom_string) : Tot usize = string_length s
 
 let number_of_lines (t:vec dom_string) : Tot usize = vec_length t
 
-type text = t:vec dom_string{Usize.v (number_of_lines t) <= Isize.v _MAX_ISIZE}
+type text = text:vec dom_string{
+  Usize.(number_of_lines text >^ 0ul) /\ Usize.v (number_of_lines text) <= Isize.v _MAX_ISIZE
+}
 
 val line_len : text:text -> i:vec_idx text -> Tot usize
 let line_len t i =  dom_string_len (vec_index t i)
@@ -93,10 +94,18 @@ val current_line_length :
   usize
 let current_line_length self = line_len self.lines self.edit_point.line
 
+val selection_new: t:text -> Tot selection
+let selection_new t = {
+    lines = t;
+    edit_point = { line = 0ul; index = 0ul };
+    selection_origin = None;
+    selection_direction = Unspecified
+  }
+
 val clear_selection : selection -> Tot selection
 let clear_selection self =
-  let input = { self with selection_origin = None} in
-  let input = { self with selection_direction = Unspecified} in
+  let self = { self with selection_origin = None} in
+  let self = { self with selection_direction = Unspecified} in
   self
 
 val select_all : selection -> Tot selection
@@ -137,16 +146,14 @@ let adjust_selection_for_horizontal_change self adjust select =
       self
     else self in
     (self, false)
-  else
-    let self = if has_selection self then
-      let self = { self with edit_point = match adjust with
-      | DBackward -> selection_start self
-      | DForward -> selection_end self
-      } in
-      let self = clear_selection self in
-      self
-    else self in
-    (self, true)
+  else if has_selection self then
+    let self = { self with edit_point = match adjust with
+    | DBackward -> selection_start self
+    | DForward -> selection_end self
+    } in
+    let self = clear_selection self in
+    (self,true)
+  else  (self, false)
 
 val adjust_horizontal_to_limit : selection -> direction -> selection_status -> text_input
 let adjust_horizontal_to_limit self direction select =

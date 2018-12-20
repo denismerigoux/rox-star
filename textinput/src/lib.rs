@@ -2,11 +2,6 @@
 /// contained in the file
 /// [`servo/script/textinput.rs`](https://github.com/servo/servo/blob/master/components/script/textinput.rs)
 
-extern crate rox_star_lib;
-
-use std::marker::PhantomData;
-use rox_star_lib::RoxVec;
-
 #[derive(Clone, Copy, PartialEq)]
 pub enum SelectionStatus {
     Selected,
@@ -26,10 +21,9 @@ pub enum Direction {
     Backward,
 }
 
-//#[refinement |x| => x.to_nat() <= std::isize::MAX.to_nat()) ]
+//#[refinement | x | => x.to_nat() <= std::isize::MAX.to_nat()) ]
 type SmallUsize = usize;
 
-//#[fstar_prefix "noeq"]
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct TextPoint {
     /// 0-based line number
@@ -44,40 +38,27 @@ impl TextPoint {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct SelectionState {
-    start: TextPoint,
-    end: TextPoint,
-    direction: SelectionDirection,
-}
+//#[refinement (| s | => s.0.len().to_nat() < std::isize::MAX.to_nat() )]
+pub type DOMString = String;
 
-//#[assume]
-type Pointer = *const ();
-
-//#[refinement (fun s -> s.0.len().to_nat() < std::isize::MAX.to_nat() )]
-pub struct DOMString(String, PhantomData<Pointer>);
-
-impl DOMString {
-    fn len(&self) -> usize {
-        let DOMString(s,_) = &self;
-        s.len()
-    }
-}
-
-fn number_of_lines(t: &RoxVec<DOMString>) -> usize {
+fn number_of_lines(t: &Vec<DOMString>) -> usize {
     t.len()
 }
 
-//#[refinement (fun t -> number_of_lines(t).to_nat() <= std::isize::MAX.to_nat() ]
-type Text = RoxVec<DOMString>;
+//#[refinement (| t | => number_of_lines(t) > 0 &&
+//    number_of_lines(t).to_nat() <= std::isize::MAX.to_nat()
+//)]
+type Text = Vec<DOMString>;
 
 fn line_len(t: &Text, i: usize) -> usize {
     t[i].len()
 }
 
+//#[fstar_prefix "noeq"]
+#[derive(Debug)]
 pub struct TextInput {
     /// Current text input content, split across lines without trailing '\n'
-    lines: RoxVec<DOMString>,
+    lines: Text,
 
     /// Current cursor input point
     edit_point: TextPoint,
@@ -105,6 +86,7 @@ impl TextInput {
         }
     }
 
+    #[allow(dead_code)]
     fn assert_ok_selection(&self) -> bool {
         self.assert_edit_order()
             && self.edit_point.line < self.lines.len()
@@ -112,9 +94,12 @@ impl TextInput {
     }
 }
 
+//#[refinement (| t | => t.assert_ok_selection( )]
+#[allow(dead_code)]
 type Selection = TextInput;
 
 impl TextPoint {
+    #[allow(dead_code)]
     fn is_valid_text_point(&self, input: &TextInput) -> bool {
         self.line < number_of_lines(&input.lines) && self.index <= line_len(&input.lines, self.line)
     }
@@ -129,6 +114,18 @@ impl TextInput {
 }
 
 impl Selection {
+    pub fn new(
+        lines: Text,
+    ) -> Selection {
+        Selection {
+            lines,
+            edit_point: TextPoint { line: 0, index: 0 },
+            selection_origin: None,
+            selection_direction : SelectionDirection::Unspecified,
+        }
+    }
+
+
     pub fn clear_selection(&mut self) {
         self.selection_origin = None;
         self.selection_direction = SelectionDirection::Unspecified;
@@ -187,8 +184,10 @@ impl Selection {
                     Direction::Forward => self.selection_end(),
                 };
                 self.clear_selection();
+                true
+            } else {
+                false
             }
-            true
         }
     }
 
@@ -226,6 +225,9 @@ impl Selection {
         }
     }
 
+    //#[requires (| self , adjust , select | =>
+    //    adjust.to_nat() + self.edit_point.line.to_nat() + 1 <= std::isize::MAX.to_nat()
+    //)]
     pub fn adjust_vertical(&mut self, adjust: isize, select: SelectionStatus) {
         if select == SelectionStatus::Selected {
             if self.selection_origin.is_none() {
@@ -274,6 +276,7 @@ impl Selection {
         }
     }
 
+    //#[requires (| self , adjust, select | => adjust > std::isize::MIN)]
     fn perform_horizontal_adjustment(&mut self, adjust: isize, select: SelectionStatus) {
         if adjust < 0 {
             let remaining = self.edit_point.index;
@@ -322,6 +325,7 @@ impl Selection {
         self.update_selection_direction();
     }
 
+    //#[requires (| self, adjust, select | => adjust > std::isize::MIN)]
     pub fn adjust_horizontal(&mut self, adjust: isize, select: SelectionStatus) {
         let direction = if adjust >= 0 {
             Direction::Forward
@@ -349,4 +353,46 @@ impl Selection {
             self.perform_horizontal_adjustment(shift, select);
         }
     }
+}
+
+/// Testing
+
+mod test {
+    use crate::*;
+
+    #[allow(dead_code)]
+    fn text_input(s: Vec<&str>) -> TextInput {
+        TextInput::new(
+            s.iter().map(|s| String::from(*s)).collect(),
+        )
+    }
+
+    #[test]
+    fn test_textinput() {
+        let mut textinput = text_input(vec!["abc","de","f"]);
+        textinput.adjust_horizontal(3, SelectionStatus::NotSelected);
+        assert_eq!(textinput.edit_point.line, 0);
+        assert_eq!(textinput.edit_point.index, 3);
+
+        textinput.adjust_vertical(1, SelectionStatus::Selected);
+        assert_eq!(textinput.edit_point.line, 1);
+        assert_eq!(textinput.edit_point.index, 2);
+
+        textinput.adjust_vertical(-1, SelectionStatus::NotSelected);
+        assert_eq!(textinput.edit_point.line, 0);
+        assert_eq!(textinput.edit_point.index, 2);
+
+        textinput.adjust_vertical(2, SelectionStatus::NotSelected);
+        assert_eq!(textinput.edit_point.line, 2);
+        assert_eq!(textinput.edit_point.index, 1);
+
+        textinput.adjust_vertical(-1, SelectionStatus::Selected);
+        assert_eq!(textinput.edit_point.line, 1);
+        assert_eq!(textinput.edit_point.index, 1);
+
+        textinput.adjust_horizontal(2, SelectionStatus::Selected);
+        assert_eq!(textinput.edit_point.line, 2);
+        assert_eq!(textinput.edit_point.index, 0);
+    }
+
 }
