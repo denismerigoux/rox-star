@@ -2,39 +2,33 @@
 /// contained in the file
 /// [`servo/components/selector/bloom.rs`](https://github.com/servo/servo/blob/master/components/selectors/bloom.rs)
 
-extern crate rox_star_lib;
-
-pub mod lib_vanilla;
-
-use rox_star_lib::*;
-
-fn key_size() -> Usize { 12.into() }
-fn array_size() -> Usize { Usize::from_repr(1) << key_size() }
-fn key_mask() -> Usize { (Usize::from_repr(1) << key_size()) - 1.into() }
+const KEY_SIZE : usize = 12;
+const ARRAY_SIZE : usize = 1 << KEY_SIZE;
+const KEY_MASK : u32 = (1 << KEY_SIZE) - 1;
 
 pub struct BloomStorageU8 {
-    //#[invariant (| arr | => arr.len() == array_size ())]
-    counters: RoxArray<U8>,
+    counters: [u8; ARRAY_SIZE],
 }
 
-fn valid_index(i: Usize) -> bool {
-    i < array_size()
-}
-
-#[inline]
-fn hash1(hash: U32) -> U32 {
-    hash & key_mask().into()
+#[allow(dead_code)]
+fn valid_index(i: usize) -> bool {
+    i < ARRAY_SIZE
 }
 
 #[inline]
-fn hash2(hash: U32) -> U32 {
-    (hash >> key_size().into()) & key_mask().into()
+fn hash1(hash: u32) -> u32 {
+    hash & KEY_MASK
+}
+
+#[inline]
+fn hash2(hash: u32) -> u32 {
+    (hash >> KEY_SIZE) & KEY_MASK
 }
 
 impl Default for BloomStorageU8 {
     fn default() -> Self {
         BloomStorageU8 {
-            counters: RoxArray::new(array_size(),0.into()),
+            counters: [0; ARRAY_SIZE],
         }
     }
 }
@@ -43,34 +37,34 @@ impl Default for BloomStorageU8 {
 impl BloomStorageU8 {
 
     #[inline]
-    fn first_slot_index(hash: U32) -> Usize {
-        hash1(hash).into()
+    fn first_slot_index(hash: u32) -> usize {
+        hash1(hash) as usize
     }
 
     #[inline]
-    fn second_slot_index(hash: U32) -> Usize {
-        hash2(hash).into()
+    fn second_slot_index(hash: u32) -> usize {
+        hash2(hash) as usize
     }
 
+    //#[requires (| index | => valid_index(index))]
     #[inline]
-    fn slot_value(&self, index: Usize) -> U8 {
-        verif_pre!(valid_index(index));
+    fn slot_value(&self, index: usize) -> u8 {
         self.counters[index]
     }
 
+    //#[requires (| index | => valid_index(index))]
     #[inline]
-    fn slot_is_empty(&self, index: Usize) -> bool {
-        verif_pre!(valid_index(index));
+    fn slot_is_empty(&self, index: usize) -> bool {
         self.slot_value(index) == 0.into()
     }
 
     #[inline]
-    fn first_slot_is_empty(&self, hash: U32) -> bool {
+    fn first_slot_is_empty(&self, hash: u32) -> bool {
         self.slot_is_empty(Self::first_slot_index(hash))
     }
 
     #[inline]
-    fn second_slot_is_empty(&self, hash: U32) -> bool {
+    fn second_slot_is_empty(&self, hash: u32) -> bool {
         self.slot_is_empty(Self::second_slot_index(hash))
     }
 
@@ -78,44 +72,44 @@ impl BloomStorageU8 {
     /// This can sometimes return true even if the item is not in the filter,
     /// but will never return false for items that are actually in the filter.
     #[inline]
-    pub fn might_contain_hash(&self, hash: U32) -> bool {
+    pub fn might_contain_hash(&self, hash: u32) -> bool {
         !self.first_slot_is_empty(hash) && !self.second_slot_is_empty(hash)
     }
 
+    //#[requires (| index | => valid_index(index))]
     #[inline]
-    fn adjust_slot(&mut self, index: Usize, increment: bool) {
-        verif_pre!(valid_index(index));
+    fn adjust_slot(&mut self, index: usize, increment: bool) {
         let slot = &mut self.counters[index];
         if *slot != 0xff.into() {
             // full
             if increment {
-                *slot = *slot + 1.into();
+                *slot += 1;
             } else {
-                *slot = *slot - 1.into();
+                *slot -= 1;
             }
         }
     }
 
     #[inline]
-    fn adjust_first_slot(&mut self, hash: U32, increment: bool) {
+    fn adjust_first_slot(&mut self, hash: u32, increment: bool) {
         self.adjust_slot(Self::first_slot_index(hash), increment)
     }
 
     #[inline]
-    fn adjust_second_slot(&mut self, hash: U32, increment: bool) {
+    fn adjust_second_slot(&mut self, hash: u32, increment: bool) {
         self.adjust_slot(Self::second_slot_index(hash), increment)
     }
 
     /// Inserts an item with a particular hash into the bloom filter.
     #[inline]
-    pub fn insert_hash(&mut self, hash: U32) {
+    pub fn insert_hash(&mut self, hash: u32) {
         self.adjust_first_slot(hash, true);
         self.adjust_second_slot(hash, true);
     }
 
     /// Removes an item with a particular hash from the bloom filter.
     #[inline]
-    pub fn remove_hash(&mut self, hash: U32) {
+    pub fn remove_hash(&mut self, hash: u32) {
         self.adjust_first_slot(hash, false);
         self.adjust_second_slot(hash, false);
     }
@@ -133,12 +127,12 @@ fn create_and_insert_some_stuff() {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    fn hash_as_str(i: usize) -> U32 {
+    fn hash_as_str(i: usize) -> u32 {
         let mut hasher = DefaultHasher::new();
         let s = i.to_string();
         s.hash(&mut hasher);
         let hash: u64 = hasher.finish();
-        U32::from_repr((hash >> 32) as u32 ^ (hash as u32))
+        (hash >> 32) as u32 ^ (hash as u32)
     }
 
     let mut bf = BloomStorageU8::new();

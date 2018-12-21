@@ -18,13 +18,11 @@ mod macros {
     }
 }
 
-mod vec;
-mod array;
 mod nat_int;
-mod integers;
+mod secret_integers;
+mod bytes;
 
 
-pub use self::array::*;
-pub use self::vec::*;
 pub use self::nat_int::*;
-pub use self::integers::*;
+pub use self::secret_integers::*;
+pub use self::bytes::*;
