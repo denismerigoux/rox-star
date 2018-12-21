@@ -22,3 +22,11 @@ pub fn u8s_from_uint32s_le(ints: &[U32]) -> Vec<U8> {
         secret_bytes
     }).flatten().collect()
 }
+
+pub fn fill<T>(len:usize, f: &Fn(usize) -> T) -> Vec<T> {
+    let mut a = Vec::with_capacity(len);
+    for i in 0..a.len() {
+        a[i] = f(i);
+    };
+    a
+}
