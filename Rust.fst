@@ -137,7 +137,6 @@ let array_update_lemma2 (#a:eqtype) (#len:usize) (s:array a len) (idx:arr_idx s)
 (*** Iterators *)
 
 let iter (a: Type0) = vec a
-
 val array_to_iter : #a:eqtype -> #len:usize -> array a len -> iter a
 let array_to_iter #a #len arr = arr
 
@@ -212,6 +211,15 @@ let enumerate_lemma1 (#a:eqtype) (s:iter a) (idx:vec_idx s)
   : Lemma (ensures (vec_index (iter_collect (enumerate s)) idx = (vec_index s idx, idx)))
   [SMTPat (vec_index (iter_collect (enumerate s)) idx)] = enumerate_aux_lemma (length s) s idx
 
+val iter_range: #a:Type -> low:usize -> high:usize{Usize.(low <=^ high)} ->
+  f:(i:usize{Usize.(low <=^ i) /\ Usize.(i <^ high)} -> a -> a) -> init:a ->
+  Tot a
+let iter_range #a low high f init = if low = high then init else repeat_left
+    (Usize.v low) (Usize.(v (high -^ 1ul)))
+    (fun _ -> a )
+    (fun i acc -> f (Usize.uint_to_t i) acc)
+    init
+
 (*** Sugars *)
 
 (**** Option type *)
@@ -231,9 +239,32 @@ let is_none (#a:Type) (x:option a) : bool = not (is_some x)
 let assert_eq (#a:eqtype) (id:string) (printing: (a -> All.ML unit)) (x y:a) : All.ML unit =
   if x = y then () else begin
     IO.print_string "assertion [";
+    IO.print_string id;
     IO.print_string "] failed: ";
     printing x;
     IO.print_string " != ";
     printing y;
     IO.print_string "\n"
   end
+
+private val repeat_left_ml:
+    lo:nat
+  -> hi:nat{lo <= hi}
+  -> a:(i:nat{lo <= i /\ i <= hi} -> Type)
+  -> f:(i:nat{lo <= i /\ i < hi} -> a i -> All.ML (a (i + 1)))
+  -> acc:a lo
+  -> All.ML (a hi) (decreases (hi - lo))
+private let rec repeat_left_ml lo hi a f acc =
+  if lo = hi then acc
+  else repeat_left_ml (lo + 1) hi a f (f lo acc)
+
+
+val iter_range_ml: #a:Type -> low:usize -> high:usize{Usize.(low <=^ high)} ->
+  f:(i:usize{Usize.(low <=^ i) /\ Usize.(i <^ high)} -> a -> All.ML a) -> init:a ->
+  All.ML a
+let iter_range_ml #a low high f init = if low = high then init else
+  repeat_left_ml
+    (Usize.v low) (Usize.(v (high -^ 1ul)))
+    (fun _ -> a )
+    (fun i acc -> f (Usize.uint_to_t i) acc)
+    init
