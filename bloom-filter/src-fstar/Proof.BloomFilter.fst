@@ -132,6 +132,13 @@ let rec count_sum_component_lemma (l:count_list element) (e':element) (idx:valid
   | [] -> ()
   | (e'', count)::tl -> count_sum_component_lemma tl e' idx
 
+let hash_collision (bf: bloom_filter) (e:element) =
+  might_contain_hash bf.storage (hash e) ==> (contains bf.ghost_state.elements e \/
+    (exists (e':element). let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    let idx1' = first_slot_index (hash e') in let idx2' = second_slot_index (hash e') in
+    (idx1 = idx1' \/ idx1 = idx2' \/ idx2 = idx1' \/ idx2 = idx2'))
+  )
+
 (**** New bloom filter properties *)
 
 (***** Element invalidation *)
@@ -144,6 +151,12 @@ let new_bf_element_invalidation_lemma (e':element)
 
 let new_bf_count_invariant_lemma (idx:valid_index)
   : Lemma (ensures (count_invariant_property (new_bloom_filter ()) idx))
+  = ()
+
+(***** Hash collision *)
+
+let new_bf_hash_collision_lemma (e:element)
+  : Lemma (ensures (hash_collision (new_bloom_filter ()) e))
   = ()
 
 (**** Insert element properties *)
@@ -246,6 +259,12 @@ let insert_element_count_invariant_lemma (bf:bloom_filter) (e:element) (idx:vali
   : Lemma (requires (count_invariant bf idx))
     (ensures (count_invariant (insert_element bf e) idx))
   = if is_max bf.storage idx then () else insert_element_count_invariant_lemma_prelim bf e idx
+
+(***** Hash collision *)
+
+let insert_element_hash_collision_lemma (bf:bloom_filter) (e e':element)
+  : Lemma (requires (hash_collision bf e')) (ensures (hash_collision (insert_element bf e) e'))
+  = ()
 
 (**** Remove element properties *)
 
@@ -408,10 +427,18 @@ let remove_element_element_invalidation_lemma (bf:bloom_filter) (e e':element)
     end else ()
   end else ()
 
+(***** Hash collision *)
+
+let remove_element_hash_collision_lemma (bf:bloom_filter) (e e':element)
+  : Lemma (requires (hash_collision bf e' /\ contains bf.ghost_state.elements e))
+    (ensures (hash_collision (remove_element bf e) e'))
+  = ()
+
 (**** Final displayable properties *)
 
 let valid_bf (bf:bloom_filter) = (forall (e':element). element_invalidation bf e') /\
-  (forall (idx:valid_index). count_invariant_property bf idx)
+  (forall (idx:valid_index). count_invariant_property bf idx) /\
+  (forall (e':element). hash_collision bf e')
 
 let new_bf_correctness () : Lemma (ensures (valid_bf (new_bloom_filter ()))) =
   let new_bf = new_bloom_filter () in

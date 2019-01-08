@@ -4,8 +4,8 @@ FSTAR=$(FSTAR_HOME)/bin/fstar.exe
 
 include $(FSTAR_HOME)/ulib/ml/Makefile.include
 
-%.fst.hints: .%fst
-	$(FSTAR) $^ --use_hints --record_hints --include ../ --include src-fstar/
+%.fst.hints: %.fst
+	$(FSTAR) $< --use_hints --record_hints --include ../ --include src-fstar/
 
 %.exe: %.fst
 	mkdir -p target/ocaml
@@ -16,9 +16,9 @@ include $(FSTAR_HOME)/ulib/ml/Makefile.include
 		-o Test_BloomFilter.exe
 
 clean:
-			rm src-fstar/BloomFilter.fst.hints
+	rm src-fstar/Proof.BloomFilter.fst.hints
 
-verify: src-fstar/BloomFilter.fst.hints
+verify: src-fstar/Proof.BloomFilter.fst.hints
 
 
 extract: src-fstar/Test.BloomFilter.exe
@@ -26,3 +26,5 @@ extract: src-fstar/Test.BloomFilter.exe
 test: src-fstar/Test.BloomFilter.exe
 	./Test_BloomFilter.exe
 	cargo test
+
+.PHONY: %.fst

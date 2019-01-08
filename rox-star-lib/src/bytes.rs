@@ -1,5 +1,5 @@
 use crate::*;
-use std::fmt::{Display, Formatter, Error};
+use std::fmt::Display;
 
 pub fn u8s_to_uint32s_le(bytes: &[U8]) -> Vec<U32> {
     verif_pre!(bytes.len() % 4 == 0);
