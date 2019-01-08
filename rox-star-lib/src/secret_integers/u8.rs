@@ -1,9 +1,11 @@
+use std::num::Wrapping;
 use std::ops::*;
+use std::fmt::{Display, Formatter, Error};
 
 use crate::nat_int::Int;
 
-#[derive(Clone, Copy)]
-pub struct U8(pub u8);
+#[derive(Clone, Copy, Debug, Default)]
+pub struct U8(pub(crate) u8);
 type Representation = u8;
 
 impl U8 {
@@ -14,6 +16,14 @@ impl U8 {
     pub fn to_nat(self) -> Int {
         self.0.into()
     }
+
+    pub fn classify<T: Into<Representation>>(x: T) -> Self {
+        U8(x.into())
+    }
+
+    pub fn declassify<T: From<Representation>>(self) -> T {
+        self.0.into()
+    }
 }
 
 impl Add for U8 {
@@ -22,16 +32,17 @@ impl Add for U8 {
     fn add(self, rhs: Self) -> Self {
         let U8(i1) = self;
         let U8(i2) = rhs;
-        U8(i1 + i2)
+        U8((Wrapping(i1) + Wrapping(i2)).0)
     }
 }
+
 impl Sub for U8 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
         let U8(i1) = self;
         let U8(i2) = rhs;
-        U8(i1 - i2)
+        U8((Wrapping(i1) - Wrapping(i2)).0)
     }
 }
 
@@ -41,7 +52,7 @@ impl Mul for U8 {
     fn mul(self, rhs: Self) -> Self {
         let U8(i1) = self;
         let U8(i2) = rhs;
-        U8(i1 * i2)
+        U8((Wrapping(i1) * Wrapping(i2)).0)
     }
 }
 
@@ -114,5 +125,11 @@ impl BitXor for U8 {
 impl BitXorAssign for U8 {
     fn bitxor_assign(&mut self, rhs: Self) {
         *self = *self ^ rhs
+    }
+}
+
+impl Display for U8 {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{:02x}", self.0)
     }
 }

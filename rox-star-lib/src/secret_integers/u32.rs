@@ -1,9 +1,12 @@
+use std::num::Wrapping;
 use std::ops::*;
+use std::fmt::{Display, Formatter, Error};
+
 
 use crate::nat_int::Int;
 
-#[derive(Clone, Copy)]
-pub struct U32(pub u32);
+#[derive(Clone, Copy, Debug, Default)]
+pub struct U32(pub(crate) u32);
 type Representation = u32;
 
 impl U32 {
@@ -14,6 +17,14 @@ impl U32 {
     pub fn to_nat(self) -> Int {
         self.0.into()
     }
+
+    pub fn classify<T: Into<Representation>>(x: T) -> Self {
+        U32(x.into())
+    }
+
+    pub fn declassify<T: From<Representation>>(self) -> T {
+        self.0.into()
+    }
 }
 
 impl Add for U32 {
@@ -22,7 +33,7 @@ impl Add for U32 {
     fn add(self, rhs: Self) -> Self {
         let U32(i1) = self;
         let U32(i2) = rhs;
-        U32(i1 + i2)
+        U32((Wrapping(i1) + Wrapping(i2)).0)
     }
 }
 
@@ -39,7 +50,7 @@ impl Sub for U32 {
     fn sub(self, rhs: Self) -> Self {
         let U32(i1) = self;
         let U32(i2) = rhs;
-        U32(i1 - i2)
+        U32((Wrapping(i1) - Wrapping(i2)).0)
     }
 }
 
@@ -49,7 +60,7 @@ impl Mul for U32 {
     fn mul(self, rhs: Self) -> Self {
         let U32(i1) = self;
         let U32(i2) = rhs;
-        U32(i1 * i2)
+        U32((Wrapping(i1) * Wrapping(i2)).0)
     }
 }
 
@@ -117,5 +128,11 @@ impl BitXor for U32 {
         let U32(i1) = self;
         let U32(i2) = rhs;
         U32(i1 ^ i2)
+    }
+}
+
+impl Display for U32 {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{:08x}", self.0)
     }
 }
