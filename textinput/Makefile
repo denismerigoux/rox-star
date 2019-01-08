@@ -6,7 +6,7 @@ FSTAR=$(FSTAR_HOME)/bin/fstar.exe
 include $(FSTAR_HOME)/ulib/ml/Makefile.include
 
 %.fst.hints: %.fst
-	$(FSTAR) $^ --record_hints --use_hints  --include ../
+	$(FSTAR) $< --record_hints --use_hints  --include ../
 
 %.exe: %.fst
 	mkdir -p target/ocaml
