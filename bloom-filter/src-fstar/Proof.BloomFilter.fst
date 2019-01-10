@@ -124,19 +124,34 @@ let count_invariant (bf:bloom_filter) (idx:valid_index) =
 
 #reset-options "--max_fuel 1 --z3rlimit 20"
 
-let rec count_sum_component_lemma (l:count_list element) (e':element) (idx:valid_index)
+let rec count_sum_component_lemma1 (l:count_list element) (e':element) (idx:valid_index)
   : Lemma (requires (
     let idx1 = first_slot_index (hash e') in let idx2 = second_slot_index (hash e') in
     idx = idx1 \/ idx = idx2
   )) (ensures (compute_count_sum idx l >= element_count l e')) = match l with
   | [] -> ()
-  | (e'', count)::tl -> count_sum_component_lemma tl e' idx
+  | (e'', count)::tl -> count_sum_component_lemma1 tl e' idx
+
+let rec count_sum_component_lemma2 (l:count_list element) (idx:valid_index)
+  : Lemma (requires (compute_count_sum idx l > 0))
+    (ensures (exists (e:element).
+      (idx = first_slot_index (hash e) \/ idx = second_slot_index (hash e)) /\
+      element_count l e > 0
+    ))
+  =  match l with
+  | [] -> ()
+  | (e, count)::tl ->
+    if (idx = first_slot_index (hash e) || idx = second_slot_index (hash e)) && count > 0 then
+      ()
+    else count_sum_component_lemma2 tl idx
 
 let hash_collision (bf: bloom_filter) (e:element) =
+  let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
   might_contain_hash bf.storage (hash e) ==> (contains bf.ghost_state.elements e \/
-    (exists (e':element). let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
-    let idx1' = first_slot_index (hash e') in let idx2' = second_slot_index (hash e') in
-    (idx1 = idx1' \/ idx1 = idx2' \/ idx2 = idx1' \/ idx2 = idx2'))
+    (is_max bf.storage idx1 \/ is_max bf.storage idx2) \/
+    (exists (e':element{e' <> e}).
+      let idx1' = first_slot_index (hash e') in let idx2' = second_slot_index (hash e') in
+      (idx1 = idx1' \/ idx1 = idx2' \/ idx2 = idx1' \/ idx2 = idx2'))
   )
 
 (**** New bloom filter properties *)
@@ -392,9 +407,9 @@ let remove_element_element_invalidation_prelim_lemma1
     let new_bf = remove_element bf e in U8.(slot_value new_bf.storage idx >^ 0uy)
   )) =  let new_bf = remove_element bf e in
   remove_element_count_invariant_lemma bf e idx;
-  count_sum_component_lemma bf.ghost_state.elements e' idx;
+  count_sum_component_lemma1 bf.ghost_state.elements e' idx;
   remove_element_same_count_lemma bf e e';
-  count_sum_component_lemma new_bf.ghost_state.elements e' idx
+  count_sum_component_lemma1 new_bf.ghost_state.elements e' idx
 
 let remove_element_element_invalidation_prelim_lemma2 (bf:bloom_filter) (e:element)
   : Lemma (requires (
@@ -407,8 +422,8 @@ let remove_element_element_invalidation_prelim_lemma2 (bf:bloom_filter) (e:eleme
   )) = let new_bf = remove_element bf e in
   let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
   remove_element_count_invariant_lemma bf e idx1;remove_element_count_invariant_lemma bf e idx2;
-  count_sum_component_lemma new_bf.ghost_state.elements e idx1;
-  count_sum_component_lemma new_bf.ghost_state.elements e idx2
+  count_sum_component_lemma1 new_bf.ghost_state.elements e idx1;
+  count_sum_component_lemma1 new_bf.ghost_state.elements e idx2
 
 let remove_element_element_invalidation_lemma (bf:bloom_filter) (e e':element)
   : Lemma (requires (
@@ -429,16 +444,60 @@ let remove_element_element_invalidation_lemma (bf:bloom_filter) (e e':element)
 
 (***** Hash collision *)
 
+#reset-options "--z3rlimit 20"
+
+let remove_element_hash_collision_prelim_lemma1 (bf:bloom_filter) (e:element) (idx:valid_index)
+  : Lemma (requires (
+    (idx = first_slot_index (hash e) \/ idx = second_slot_index (hash e)) /\
+    U8.(slot_value bf.storage idx >^ 0uy) /\ not (is_max bf.storage idx) /\
+    count_invariant bf idx /\
+    not (contains bf.ghost_state.elements e)
+  )) (ensures (exists (e':element{e' <> e}).
+    let idx1' = first_slot_index (hash e') in let idx2' = second_slot_index (hash e') in
+    idx = idx1' \/ idx = idx2'
+  )) = count_sum_component_lemma2 bf.ghost_state.elements idx
+
 let remove_element_hash_collision_lemma (bf:bloom_filter) (e e':element)
-  : Lemma (requires (hash_collision bf e' /\ contains bf.ghost_state.elements e))
+  : Lemma (requires (count_invariant bf (first_slot_index (hash e')) /\
+    count_invariant bf (second_slot_index (hash e')) /\ hash_collision bf e' /\
+    contains bf.ghost_state.elements e))
     (ensures (hash_collision (remove_element bf e) e'))
-  = ()
+  = let new_bf = remove_element bf e in
+  if not (might_contain_hash new_bf.storage (hash e')) then () else
+    let idx1 = first_slot_index (hash e) in let idx2 = second_slot_index (hash e) in
+    let idx1' = first_slot_index (hash e') in let idx2' = second_slot_index (hash e') in
+    assert (
+      U8.(slot_value new_bf.storage idx1' >^ 0uy) \/ U8.(slot_value new_bf.storage idx2' >^ 0uy)
+    );
+    if contains new_bf.ghost_state.elements e' then () else
+    if U8.(slot_value new_bf.storage idx1' >^ 0uy) then
+      if is_max new_bf.storage idx1' then () else begin
+      remove_element_count_invariant_lemma bf e idx1';
+      remove_element_hash_collision_prelim_lemma1 new_bf e' idx1'
+    end else if U8.(slot_value new_bf.storage idx2' >^ 0uy) then
+      if is_max new_bf.storage idx2' then () else begin
+      remove_element_count_invariant_lemma bf e idx2';
+      remove_element_hash_collision_prelim_lemma1 new_bf e' idx2'
+    end else ()
+
+#reset-options "--z3rlimit 5"
 
 (**** Final displayable properties *)
 
+(*
+  This is the full invariant that is preserved by each function manipulating the bloom filter.
+  It specifies what means the value returned by might_contain_hash. If it returns no, that means
+  the element is truly not contained in the bloom filter. If it returns yes, then three cases arise:
+    - either the bloom filter truly contains the element;
+    - either one of the slot indexes corresponding to the element's hash have been saturated;
+    - or there exists a hash collision with another element.
+  The third component of the invariant is a deep specification of the link between the values of
+  the slots of the arrays and the number of times you've inserted the corresponding elements in the
+  bloom filter. It is not directly useful from a client's perspective but necessary for the proof.
+*)
 let valid_bf (bf:bloom_filter) = (forall (e':element). element_invalidation bf e') /\
-  (forall (idx:valid_index). count_invariant_property bf idx) /\
-  (forall (e':element). hash_collision bf e')
+  (forall (e':element). hash_collision bf e') /\
+  (forall (idx:valid_index). count_invariant_property bf idx)
 
 let new_bf_correctness () : Lemma (ensures (valid_bf (new_bloom_filter ()))) =
   let new_bf = new_bloom_filter () in
@@ -447,7 +506,10 @@ let new_bf_correctness () : Lemma (ensures (valid_bf (new_bloom_filter ()))) =
   in Classical.forall_intro f;
   let g (e':element) : Lemma (ensures (element_invalidation new_bf e')) =
     new_bf_element_invalidation_lemma e'
-  in Classical.forall_intro g
+  in Classical.forall_intro g;
+  let h (e':element) : Lemma (ensures (hash_collision new_bf e')) =
+    new_bf_hash_collision_lemma e'
+  in Classical.forall_intro h
 
 let insert_element_corectness (bf:bloom_filter) (e:element)
   : Lemma (requires (valid_bf bf)) (ensures (valid_bf (insert_element bf e))) =
@@ -457,7 +519,10 @@ let insert_element_corectness (bf:bloom_filter) (e:element)
   in Classical.forall_intro f;
   let g (e':element) : Lemma (ensures (element_invalidation new_bf e')) =
     insert_element_element_invalidation_lemma bf e e'
-  in Classical.forall_intro g
+  in Classical.forall_intro g;
+  let h (e':element) : Lemma (ensures (hash_collision new_bf e')) =
+    insert_element_hash_collision_lemma bf e e'
+  in Classical.forall_intro h
 
 let remove_element_corectness (bf:bloom_filter) (e:element)
   : Lemma (requires (valid_bf bf /\ contains bf.ghost_state.elements e))
@@ -468,4 +533,7 @@ let remove_element_corectness (bf:bloom_filter) (e:element)
   in Classical.forall_intro f;
   let g (e':element) : Lemma (ensures (element_invalidation new_bf e')) =
     remove_element_element_invalidation_lemma bf e e'
-  in Classical.forall_intro g
+  in Classical.forall_intro g;
+  let h (e':element) : Lemma (ensures (hash_collision new_bf e')) =
+    remove_element_hash_collision_lemma bf e e'
+  in Classical.forall_intro h
