@@ -1,5 +1,6 @@
 module Rust
 
+module U128 = FStar.UInt128
 module U64 = FStar.UInt64
 module Usize = FStar.UInt32
 module U32 = FStar.UInt32
@@ -13,6 +14,9 @@ module I32 = FStar.Int32
 (*** Integers *)
 
 (**** Types and max values *)
+
+type u128 = U128.t
+let _MAX_U128 = U128.uint_to_t (FStar.UInt.max_int 128)
 
 type u64 = U64.t
 let _MAX_U64 = U64.uint_to_t (FStar.UInt.max_int 64)
@@ -44,6 +48,11 @@ let _MIN_I32 = I32.int_to_t (FStar.Int.min_int 32)
 let isize_to_usize_safe (x:isize{Isize.(x >=^ 0l)}) : Tot usize = Usize.uint_to_t (Isize.v x)
 let usize_to_isize_safe (x:usize{Usize.v x <= Isize.v _MAX_ISIZE}) : Tot isize =
   Isize.int_to_t (Usize.v x)
+
+let u32_to_u64 (x:u32) : u64 = U64.uint_to_t (U32.v x)
+let u64_to_u128 (x:u64) : u128 = U128.uint_to_t (U64.v x)
+
+let u128_to_u64 (x:u128) : u64 = U64.uint_to_t (U128.v x % U64.v _MAX_U64)
 
 let max_isize (x y:isize) = Isize.(if x >=^ y then x else y)
 let min_isize (x y:isize) = Isize.(if x >=^ y then y else x)
@@ -118,6 +127,9 @@ let arr_idx (#a:Type0) (#len:usize) (arr:array a len) = idx:usize{Usize.(idx <^ 
 
 val array_index : #a:Type0 -> #len:usize -> arr:array a len -> i:arr_idx arr -> Tot a
 let array_index #a #len arr i = index #a arr (Usize.v i)
+
+val op_Array_Access: #a:Type0 -> #len:usize -> arr:array a len -> i:arr_idx arr -> Tot a
+let op_Array_Access = array_index
 
 val array_update : #a:eqtype -> #len:usize -> arr:array a len -> i:arr_idx arr -> new_value:a ->
   Tot (new_arr:array a len)

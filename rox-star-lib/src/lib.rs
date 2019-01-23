@@ -1,6 +1,6 @@
 extern crate num_bigint;
 extern crate num_traits;
-
+extern crate secret_integers;
 
 #[macro_use]
 mod macros {
@@ -19,10 +19,9 @@ mod macros {
 }
 
 mod nat_int;
-mod secret_integers;
 mod bytes;
 
-
+pub use secret_integers::*;
 pub use self::nat_int::*;
 pub use self::secret_integers::*;
 pub use self::bytes::*;

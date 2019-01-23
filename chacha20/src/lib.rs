@@ -2,7 +2,6 @@ extern crate rox_star_lib;
 
 use rox_star_lib::*;
 
-
 const BLOCK_SIZE : usize = 64;
 type State = [U32; 16];
 //#[refinement (|x| x.len() == 32)]

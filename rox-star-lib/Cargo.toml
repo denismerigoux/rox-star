@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 num-bigint = "*"
 num-traits = "*"
+secret_integers = { path = "../../secret_integers" }
