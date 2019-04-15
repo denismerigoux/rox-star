@@ -15,11 +15,10 @@ include $(FSTAR_HOME)/ulib/ml/Makefile.include
 		target/ocaml/Spec_BloomFilter.ml target/ocaml/Test_BloomFilter.ml \
 		-o Test_BloomFilter.exe
 
-clean:
-	rm src-fstar/Proof.BloomFilter.fst.hints
-
 verify: src-fstar/Proof.BloomFilter.fst.hints
 
+clean:
+	rm src-fstar/Proof.BloomFilter.fst.hints
 
 extract: src-fstar/Test.BloomFilter.exe
 
